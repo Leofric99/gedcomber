@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BookOpen,
   ChevronLeft,
@@ -15,17 +15,28 @@ import { projectTheme } from '../lib/themes'
 import { personName } from '../lib/format'
 import { BookArtwork } from './BookArtwork'
 import { CheckBox, Field, FormatControls, Section, Toggle } from './Controls'
+import { updatePerson } from '../lib/gedcom'
 export function BookSidebar({
   project,
   onChange,
   onToggle,
+  onError,
 }: {
   project: Project
   onChange: (p: Project) => void
   onToggle: (id: string) => void
+  onError: (message: string) => void
 }) {
   const [tab, setTab] = useState<'people' | 'format'>('people'),
     [search, setSearch] = useState('')
+  const storyInput = useRef<HTMLInputElement>(null)
+  const storyPerson = useRef<string>('')
+  const latest = useRef(project)
+  latest.current = project
+  const addStory = (id: string) => {
+    storyPerson.current = id
+    storyInput.current?.click()
+  }
   const b = project.book,
     set = (part: Partial<Project['book']>) => onChange({ ...project, book: { ...b, ...part } })
   const people = Object.values(project.dataset.people)
@@ -38,6 +49,31 @@ export function BookSidebar({
   }
   return (
     <aside className="sidebar">
+      <input
+        ref={storyInput}
+        className="hidden"
+        type="file"
+        accept=".txt,.md,.markdown,text/plain,text/markdown"
+        onChange={async (e) => {
+          const file = e.target.files?.[0],
+            id = storyPerson.current
+          e.target.value = ''
+          if (!file) return
+          try {
+            if (!/\.(txt|md|markdown)$/i.test(file.name))
+              throw new Error('Choose a plain text or Markdown file.')
+            if (file.size > 2 * 1024 * 1024)
+              throw new Error('Please choose a story smaller than 2 MB.')
+            const story = await file.text(),
+              current = latest.current
+            const person = current.dataset.people[id]
+            if (person)
+              onChange({ ...current, dataset: updatePerson(current.dataset, { ...person, story }) })
+          } catch (err) {
+            onError((err as Error).message)
+          }
+        }}
+      />
       <div className="sidebar-title">
         <BookOpen size={17} />
         <h2>Ancestry book</h2>
@@ -93,6 +129,15 @@ export function BookSidebar({
                       >
                         <X size={12} />
                       </button>
+                      {!project.dataset.people[id].story.trim() && (
+                        <button
+                          className="text-btn chapter-story"
+                          onClick={() => addStory(id)}
+                          aria-label={`Add life story for ${personName(project.dataset.people[id])}`}
+                        >
+                          Add life story
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -110,18 +155,29 @@ export function BookSidebar({
               </div>
               <div className="book-person-list">
                 {people.slice(0, 200).map((p) => (
-                  <button
-                    className="book-person"
-                    key={p.id}
-                    onClick={() => onToggle(p.id)}
-                    disabled={b.ids.length >= 100 && !b.ids.includes(p.id)}
-                  >
-                    <CheckBox checked={b.ids.includes(p.id)} />
-                    <span>
-                      <strong>{personName(p)}</strong>
-                      <small>{p.story ? 'Life story added' : 'No life story yet'}</small>
-                    </span>
-                  </button>
+                  <div className="book-person-row" key={p.id}>
+                    <button
+                      className="book-person"
+                      key={p.id}
+                      onClick={() => onToggle(p.id)}
+                      disabled={b.ids.length >= 100 && !b.ids.includes(p.id)}
+                    >
+                      <CheckBox checked={b.ids.includes(p.id)} />
+                      <span>
+                        <strong>{personName(p)}</strong>
+                        <small>{p.story ? 'Life story added' : 'No life story yet'}</small>
+                      </span>
+                    </button>
+                    {!p.story.trim() && (
+                      <button
+                        className="text-btn"
+                        onClick={() => addStory(p.id)}
+                        aria-label={`Add life story for ${personName(p)}`}
+                      >
+                        Add life story
+                      </button>
+                    )}
+                  </div>
                 ))}
                 {people.length > 200 && (
                   <p className="help">Showing the first 200 matches. Search to find others.</p>
@@ -193,7 +249,7 @@ export function BookSidebar({
       </div>
       <div className="sidebar-foot">
         <UserRound size={13} />
-        Edit people and stories in Tree view
+        Upload life stories here or edit details in Tree view
       </div>
     </aside>
   )

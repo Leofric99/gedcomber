@@ -71,7 +71,14 @@ export default function App() {
   const notify = useCallback((text: string, error = false) => setMessage({ text, error }), [])
   useEffect(() => {
     let cancelled = false
-    loadProject()
+    // A blocked or unavailable IndexedDB request must not leave the whole app
+    // on the loading screen indefinitely. The user can still open a GEDCOM or
+    // restore a project backup once the workspace is available.
+    const restore = Promise.race([
+      loadProject(),
+      new Promise<undefined>((resolve) => window.setTimeout(() => resolve(undefined), 4000)),
+    ])
+    restore
       .then((saved) => {
         if (saved && !cancelled) {
           setProject(validateProject(saved))
@@ -546,7 +553,12 @@ export default function App() {
         >
           {sidebar &&
             (mode === 'book' ? (
-              <BookSidebar project={project} onChange={setProject} onToggle={toggleBook} />
+              <BookSidebar
+                project={project}
+                onChange={setProject}
+                onToggle={toggleBook}
+                onError={(text) => notify(text, true)}
+              />
             ) : (
               <aside className="sidebar">
                 <div className="sidebar-title">

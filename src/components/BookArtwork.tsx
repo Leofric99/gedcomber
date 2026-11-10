@@ -17,8 +17,8 @@ export function BookArtwork({
   const { width: w, height: h, person: p } = page,
     b = project.book,
     m = 52
-  const headerX = page.photo && b.photoPosition === 'left' ? m + 130 : m
-  const nameY = page.continuation ? 93 : page.photo && b.photoPosition === 'top' ? 205 : 90
+  const headerX = page.nameX,
+    nameY = page.nameY
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -53,7 +53,7 @@ export function BookArtwork({
       </text>
       <text
         x={headerX}
-        y={nameY - 35}
+        y={nameY - 55}
         fill={theme.accent}
         fontFamily="Inter"
         fontSize="8"
@@ -61,13 +61,9 @@ export function BookArtwork({
       >
         {page.continuation ? 'THE STORY CONTINUES' : 'A LIFE REMEMBERED'}
       </text>
-      <text fontFamily={theme.font} fontSize={page.continuation ? 27 : 34} fill={theme.ink}>
+      <text fontFamily={theme.font} fontSize={34} fill={theme.ink}>
         {page.nameLines.map((line, i) => (
-          <tspan
-            key={i}
-            x={page.continuation ? m : headerX}
-            y={nameY + i * (page.continuation ? 30 : 38)}
-          >
+          <tspan key={i} x={headerX} y={nameY + i * 38}>
             {line}
           </tspan>
         ))}
@@ -110,7 +106,7 @@ export function BookArtwork({
       {page.lines.length > 0 && (
         <>
           <path
-            d={`M ${m} ${page.storyTop - 19} H ${m + 42}`}
+            d={`M ${m} ${page.storyTop - 36} H ${m + 42}`}
             stroke={theme.accent}
             strokeWidth="1"
           />

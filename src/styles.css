@@ -755,6 +755,58 @@ svg {
   background: radial-gradient(#bbc6b544 0.7px, transparent 0.7px);
   background-size: 14px 14px;
 }
+.canvas-primary {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  z-index: 2;
+}
+.sidebar-hidden .canvas-primary {
+  left: 56px;
+}
+.photo-framer {
+  padding: 12px 0;
+}
+.photo-framer canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  touch-action: none;
+  cursor: grab;
+  border-radius: 8px;
+}
+.photo-framer canvas:active {
+  cursor: grabbing;
+}
+.photo-framer label {
+  display: block;
+  margin-top: 12px;
+  font-size: 11px;
+}
+.photo-framer input {
+  width: 100%;
+}
+.book-person-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.book-person-row .book-person {
+  flex: 1;
+  min-width: 0;
+}
+.book-person-row .text-btn {
+  margin: 0 0 8px 32px;
+}
+.chapter:has(.chapter-story) {
+  flex-wrap: wrap;
+}
+.chapter:has(.chapter-story) > .truncate {
+  flex-basis: calc(100% - 108px);
+}
+.chapter-story {
+  margin-left: 23px;
+}
 .canvas-heading {
   position: absolute;
   left: 0;

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Minus, Plus, Maximize, MousePointer2, ChevronDown } from 'lucide-react'
+import { Minus, Plus, Maximize, MousePointer2, Focus } from 'lucide-react'
 import type { Project, Expansion } from '../lib/types'
 import { layoutTree } from '../lib/tree'
 import { projectTheme } from '../lib/themes'
-import { Ornament, TreeNodes } from './Artwork'
-import { personName } from '../lib/format'
+import { TreeNodes } from './Artwork'
 export function TreeCanvas({
   project,
   selected,
@@ -23,7 +22,14 @@ export function TreeCanvas({
   const ref = useRef<HTMLDivElement>(null),
     [size, setSize] = useState({ width: 900, height: 700 }),
     [view, setView] = useState(project.viewport),
-    drag = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null)
+    drag = useRef<{
+      x: number
+      y: number
+      vx: number
+      vy: number
+      targetId?: string
+      moved: boolean
+    } | null>(null)
   const viewRef = useRef(view)
   viewRef.current = view
   const layout = useMemo(
@@ -46,71 +52,80 @@ export function TreeCanvas({
     const wheel = (e: WheelEvent) => {
       e.preventDefault()
       const v = viewRef.current
-      if (e.ctrlKey || e.metaKey) {
-        const next = {
-          ...v,
-          zoom: Math.max(0.12, Math.min(3, v.zoom * Math.exp(-e.deltaY * 0.008))),
-        }
-        setView(next)
-        onViewport(next)
-      } else {
-        const next = { ...v, x: v.x - e.deltaX, y: v.y - e.deltaY }
-        setView(next)
-        onViewport(next)
+      const rect = el.getBoundingClientRect()
+      const px = e.clientX - rect.left - size.width / 2
+      const py = e.clientY - rect.top - size.height / 2
+      const delta = e.deltaY || e.deltaX
+      const zoom = Math.max(0.01, Math.min(3, v.zoom * Math.exp(-delta * 0.006)))
+      const next = {
+        zoom,
+        x: px - (px - v.x) * (zoom / v.zoom),
+        y: py - (py - v.y) * (zoom / v.zoom),
       }
+      viewRef.current = next
+      setView(next)
+      onViewport(next)
     }
     el.addEventListener('wheel', wheel, { passive: false })
     return () => el.removeEventListener('wheel', wheel)
-  }, [onViewport])
+  }, [onViewport, size])
   const commit = (next: typeof view) => {
     setView(next)
     onViewport(next)
   }
-  const fit = () => {
+  const fitted = useMemo(() => {
     const zoom = Math.max(
-      0.12,
-      Math.min(1.2, (size.width - 100) / layout.width, (size.height - 190) / layout.height),
+      0.01,
+      Math.min(1.2, (size.width - 48) / layout.width, (size.height - 210) / layout.height),
     )
-    commit({
+    return {
       zoom,
       x: -(layout.minX + layout.width / 2) * zoom,
-      y: -(layout.minY + layout.height / 2) * zoom + 40,
-    })
-  }
-  const rootHeight = layout.nodes.find((n) => n.id === project.primary)?.height ?? 100
+      y: -(layout.minY + layout.height / 2) * zoom + 25,
+    }
+  }, [layout, size])
+  const fit = () => commit(fitted)
   return (
     <div className="tree-stage" ref={ref}>
-      <div className="canvas-heading">
-        <div>
-          <span className="eyebrow">FAMILY TREE</span>
-          <button className="primary-picker" onClick={onPrimary}>
-            {personName(project.dataset.people[project.primary], 'short')}
-            <ChevronDown size={14} />
-          </button>
-        </div>
-        <span className="canvas-count">
-          {layout.nodes.length} of {Object.keys(project.dataset.people).length} people visible
-        </span>
-      </div>
+      <button className="canvas-primary btn" onClick={onPrimary} title="Change primary person">
+        <Focus size={14} /> Change primary
+      </button>
       <svg
         className="tree-svg"
-        aria-label="Interactive family tree. Drag the canvas to pan; use controls to zoom."
+        aria-label="Interactive family tree. Scroll to zoom; drag the canvas to pan."
         onPointerDown={(e) => {
-          if ((e.target as Element).closest('[role="button"]')) return
-          drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y }
+          if ((e.target as Element).closest('.branch-control')) return
+          const targetId = (e.target as Element)
+            .closest('[data-person-id]')
+            ?.getAttribute('data-person-id')
+          drag.current = {
+            x: e.clientX,
+            y: e.clientY,
+            vx: view.x,
+            vy: view.y,
+            targetId: targetId || undefined,
+            moved: false,
+          }
           e.currentTarget.setPointerCapture(e.pointerId)
         }}
         onPointerMove={(e) => {
-          if (drag.current)
-            setView((v) => ({
-              ...v,
-              x: drag.current!.vx + e.clientX - drag.current!.x,
-              y: drag.current!.vy + e.clientY - drag.current!.y,
-            }))
+          const start = drag.current
+          if (start) {
+            if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 4) start.moved = true
+            const next = {
+              ...viewRef.current,
+              x: start.vx + e.clientX - start.x,
+              y: start.vy + e.clientY - start.y,
+            }
+            viewRef.current = next
+            setView(next)
+          }
         }}
         onPointerUp={() => {
-          if (drag.current) {
-            drag.current = null
+          const current = drag.current
+          drag.current = null
+          if (current?.targetId && !current.moved) onSelect(current.targetId)
+          else if (current) {
             onViewport(viewRef.current)
           }
         }}
@@ -119,47 +134,9 @@ export function TreeCanvas({
           onViewport(viewRef.current)
         }}
       >
-        <rect
-          x="24"
-          y="78"
-          width={Math.max(0, size.width - 48)}
-          height={Math.max(0, size.height - 150)}
-          rx="3"
-          fill={theme.paper}
-          stroke="#0000000c"
-        />
-        <svg
-          x="25"
-          y="79"
-          width={Math.max(0, size.width - 50)}
-          height={Math.max(0, size.height - 152)}
-          overflow="hidden"
-        >
-          <Ornament theme={theme} width={size.width - 50} height={size.height - 152} />
-        </svg>
-        <text
-          x={size.width / 2}
-          y="139"
-          textAnchor="middle"
-          fontFamily={theme.font}
-          fontSize="28"
-          fill={theme.ink}
-        >
-          {project.title}
-        </text>
-        <text
-          x={size.width / 2}
-          y="161"
-          textAnchor="middle"
-          fontFamily="Inter"
-          fontSize="9"
-          letterSpacing="2"
-          fill={theme.accent}
-        >
-          {project.subtitle}
-        </text>
+        <rect width={size.width} height={size.height} fill={theme.paper} />
         <g
-          transform={`translate(${size.width / 2 + view.x} ${size.height / 2 + view.y + 35}) scale(${view.zoom}) translate(0 ${-rootHeight / 2})`}
+          transform={`translate(${size.width / 2 + view.x} ${size.height / 2 + view.y}) scale(${view.zoom})`}
         >
           <TreeNodes
             project={project}
@@ -175,12 +152,12 @@ export function TreeCanvas({
       <div className="canvas-bottom">
         <span className="canvas-hint">
           <MousePointer2 size={13} />
-          Drag to explore · Click a person to edit
+          Scroll to zoom · Drag to explore · Click a person to edit
         </span>
         <div className="zoom-controls">
           <button
             aria-label="Zoom out"
-            onClick={() => commit({ ...view, zoom: Math.max(0.12, view.zoom * 0.8) })}
+            onClick={() => commit({ ...view, zoom: Math.max(0.01, view.zoom * 0.8) })}
           >
             <Minus size={16} />
           </button>

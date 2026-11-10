@@ -59,14 +59,15 @@ export function formatDate(date: string, format: DateFormat): string {
 }
 export function personDetails(p: Person, d: Display): string[] {
   const rows: string[] = []
+  const eventRows = (symbol: string, date: string, place: string) => {
+    const formattedDate = date ? formatDate(date, d.dates) : ''
+    if (formattedDate) rows.push(`${symbol} ${formattedDate}`)
+    if (d.places && place) rows.push(formattedDate ? place : `${symbol} ${place}`)
+  }
   if (d.birth && (p.birthDate || (d.places && p.birthPlace)))
-    rows.push(
-      `b. ${[formatDate(p.birthDate, d.dates), d.places && p.birthPlace].filter(Boolean).join(' · ')}`,
-    )
+    eventRows('✦', p.birthDate, p.birthPlace)
   if (d.death && (p.deathDate || (d.places && p.deathPlace)))
-    rows.push(
-      `d. ${[formatDate(p.deathDate, d.dates), d.places && p.deathPlace].filter(Boolean).join(' · ')}`,
-    )
+    eventRows('✝', p.deathDate, p.deathPlace)
   if (d.occupation && p.occupation) rows.push(p.occupation)
   if (d.burial && p.burialPlace) rows.push('Buried · ' + p.burialPlace)
   if (d.notes && p.notes) rows.push(p.notes)

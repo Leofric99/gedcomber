@@ -1,9 +1,10 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { X, Camera, FileText, Upload, Trash2, BookPlus, Focus } from 'lucide-react'
 import type { Person } from '../lib/types'
 import { personName } from '../lib/format'
 import { Field, Section } from './Controls'
 import { photoData } from '../lib/storage'
+import { PhotoFramer } from './PhotoFramer'
 export function PersonEditor({
   person,
   onChange,
@@ -24,6 +25,7 @@ export function PersonEditor({
   const photoRef = useRef<HTMLInputElement>(null),
     storyRef = useRef<HTMLInputElement>(null)
   const latest = useRef(person)
+  const [framing, setFraming] = useState<string>()
   latest.current = person
   const set = (key: keyof Person, value: string) => onChange({ ...latest.current, [key]: value })
   return (
@@ -64,7 +66,7 @@ export function PersonEditor({
             if (f)
               try {
                 const photo = await photoData(f)
-                onChange({ ...latest.current, photo })
+                setFraming(photo)
               } catch (err) {
                 onError((err as Error).message)
               }
@@ -73,7 +75,37 @@ export function PersonEditor({
         {person.photo && (
           <button
             className="text-btn center"
-            onClick={() => onChange({ ...person, photo: undefined })}
+            onClick={() => setFraming(person.photoOriginal ?? person.photo)}
+          >
+            <Focus size={12} /> Adjust photograph
+          </button>
+        )}
+        {framing && (
+          <PhotoFramer
+            source={framing}
+            initial={
+              framing === (person.photoOriginal ?? person.photo) ? person.photoCrop : undefined
+            }
+            onCancel={() => setFraming(undefined)}
+            onError={onError}
+            onApply={(photo, photoCrop) => {
+              onChange({ ...latest.current, photo, photoOriginal: framing, photoCrop })
+              setFraming(undefined)
+            }}
+          />
+        )}
+        {person.photo && (
+          <button
+            className="text-btn center"
+            onClick={() => {
+              setFraming(undefined)
+              onChange({
+                ...person,
+                photo: undefined,
+                photoOriginal: undefined,
+                photoCrop: undefined,
+              })
+            }}
           >
             <Trash2 size={12} />
             Remove photograph

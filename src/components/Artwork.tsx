@@ -6,10 +6,12 @@ export function Ornament({
   theme,
   width,
   height,
+  borderless = false,
 }: {
   theme: Theme
   width: number
   height: number
+  borderless?: boolean
 }) {
   if (theme.decoration === 'minimal')
     return (
@@ -25,24 +27,28 @@ export function Ornament({
   if (theme.decoration === 'frame')
     return (
       <>
-        <rect
-          x="19"
-          y="19"
-          width={width - 38}
-          height={height - 38}
-          fill="none"
-          stroke={theme.accent}
-          strokeWidth="1"
-        />
-        <rect
-          x="26"
-          y="26"
-          width={width - 52}
-          height={height - 52}
-          fill="none"
-          stroke={theme.accent}
-          strokeWidth=".4"
-        />
+        {!borderless && (
+          <rect
+            x="19"
+            y="19"
+            width={width - 38}
+            height={height - 38}
+            fill="none"
+            stroke={theme.accent}
+            strokeWidth="1"
+          />
+        )}
+        {!borderless && (
+          <rect
+            x="26"
+            y="26"
+            width={width - 52}
+            height={height - 52}
+            fill="none"
+            stroke={theme.accent}
+            strokeWidth=".4"
+          />
+        )}
         {[
           [42, 42],
           [width - 42, 42],
@@ -171,7 +177,7 @@ export function TreeNodes({
           label: string
         }[] = [
           { group: 'parents', x: 0, y: -19, symbol: '↑', label: 'parents' },
-          { group: 'siblings', x: -145, y: 44, symbol: '↔', label: 'siblings' },
+          { group: 'siblings', x: -145, y: 44, symbol: '←', label: 'siblings to the left' },
           { group: 'partners', x: 145, y: 44, symbol: '♡', label: 'partners' },
           { group: 'children', x: 0, y: n.height + 19, symbol: '↓', label: 'children' },
         ]
@@ -180,8 +186,8 @@ export function TreeNodes({
             <g
               role={interactive ? 'button' : undefined}
               tabIndex={interactive ? 0 : undefined}
+              data-person-id={interactive ? n.id : undefined}
               aria-label={interactive ? `Edit ${person.given} ${person.surname}` : undefined}
-              onClick={() => onSelect?.(n.id)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
@@ -257,7 +263,9 @@ export function TreeNodes({
             </g>
             {interactive &&
               controls
-                .filter((c) => rel![c.group].length)
+                .filter((c) =>
+                  c.group === 'partners' ? rel!.partners.length > 1 : rel![c.group].length,
+                )
                 .map((c) => (
                   <g
                     key={c.group}
@@ -273,6 +281,7 @@ export function TreeNodes({
                     }}
                     className="branch-control"
                     transform={`translate(${c.x} ${c.y})`}
+                    onPointerDown={(e) => e.stopPropagation()}
                   >
                     <circle
                       r="12"
@@ -290,8 +299,7 @@ export function TreeNodes({
                       {project.expanded[n.id]?.[c.group] ? '−' : c.symbol}
                     </text>
                     <title>
-                      {project.expanded[n.id]?.[c.group] ? 'Hide' : 'Show'} {c.label} (
-                      {rel![c.group].length})
+                      {`${project.expanded[n.id]?.[c.group] ? 'Hide' : 'Show'} ${c.label} (${rel![c.group].length})`}
                     </title>
                   </g>
                 ))}

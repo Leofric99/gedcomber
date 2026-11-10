@@ -71,8 +71,21 @@ export function validateProject(value: unknown): Project {
       ].some((k) => typeof person[k as keyof typeof person] !== 'string')
     )
       throw new Error('The backup contains an invalid person record.')
-    if (person.photo && !/^data:image\/(png|jpeg|webp);base64,/.test(person.photo))
+    if (
+      [person.photo, person.photoOriginal].some(
+        (photo) => photo && !/^data:image\/(png|jpeg|webp);base64,/.test(photo),
+      )
+    )
       throw new Error('The backup contains an unsupported photograph.')
+    if (
+      person.photoCrop &&
+      (!Object.values(person.photoCrop).every(Number.isFinite) ||
+        person.photoCrop.zoom < 1 ||
+        person.photoCrop.zoom > 5 ||
+        Math.abs(person.photoCrop.x) > 1 ||
+        Math.abs(person.photoCrop.y) > 1)
+    )
+      throw new Error('The backup contains invalid photograph framing.')
   }
   if (
     !Array.isArray(p.book.ids) ||
@@ -109,7 +122,7 @@ export function validateProject(value: unknown): Project {
     throw new Error('The backup has invalid display or book settings.')
   if (new Set(p.book.ids).size !== p.book.ids.length)
     throw new Error('The book contains duplicate selections.')
-  if (p.viewport.zoom < 0.12 || p.viewport.zoom > 3)
+  if (p.viewport.zoom < 0.01 || p.viewport.zoom > 3)
     throw new Error('The backup has an invalid zoom level.')
   if (
     !p.colors ||

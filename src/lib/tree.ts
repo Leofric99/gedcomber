@@ -1,5 +1,6 @@
 import type { Dataset, Display, Expansion, Project } from './types'
 import { personDetails, personName } from './format'
+import { routeTree } from './treeRouting'
 export function relatives(data: Dataset, id: string): Record<keyof Expansion, string[]> {
   const parents: string[] = [],
     siblings: string[] = [],
@@ -84,13 +85,17 @@ export function layoutTree(project: Project): Layout {
       rel = relatives(data, id),
       expansion = project.expanded[id] ?? {}
     for (const group of ['parents', 'siblings', 'partners', 'children'] as const) {
-      if (!expansion[group]) continue
-      rel[group].forEach((other, j) => {
+      // A person's first spouse is part of their family unit. The control reveals
+      // additional partners; a single-spouse family needs no partner control.
+      if (!expansion[group] && group !== 'partners') continue
+      const members =
+        group === 'partners' && !expansion.partners ? rel.partners.slice(0, 1) : rel[group]
+      members.forEach((other, j) => {
         if (visited.has(other)) return
         const level = pos.level + (group === 'parents' ? -1 : group === 'children' ? 1 : 0)
         const offset =
           group === 'siblings'
-            ? (j % 2 === 0 ? -1 : 1) * (Math.floor(j / 2) + 1)
+            ? -(j + 1)
             : group === 'partners'
               ? j + 1
               : j - (rel[group].length - 1) / 2
@@ -119,16 +124,67 @@ export function layoutTree(project: Project): Layout {
     row.push(node)
     rows.set(pos.level, row)
   }
-  let y = 0
-  for (const [, nodes] of [...rows].sort(([a], [b]) => a - b)) {
-    nodes.sort((a, b) => a.x - b.x || a.id.localeCompare(b.id))
+  const orderedRows = [...rows].sort(([a], [b]) => a - b)
+  const byId = new Map([...rows.values()].flat().map((node) => [node.id, node]))
+  const childrenByParent = new Map<string, Set<TreeNode>>()
+  for (const family of data.families) {
+    for (const parent of family.parents) {
+      if (!byId.has(parent)) continue
+      const children = childrenByParent.get(parent) ?? new Set<TreeNode>()
+      for (const id of family.children) {
+        const child = byId.get(id)
+        if (child) children.add(child)
+      }
+      childrenByParent.set(parent, children)
+    }
+  }
+  for (const [level, nodes] of [...orderedRows].reverse()) {
+    // Lay out connected spouse units as blocks, so sibling insertion can never
+    // put an unrelated card across a marriage connector.
+    const pending = new Set(nodes)
+    const blocks: TreeNode[][] = []
+    while (pending.size) {
+      const first = pending.values().next().value!
+      pending.delete(first)
+      const block = [first]
+      for (let i = 0; i < block.length; i++) {
+        const partners = relatives(data, block[i].id).partners
+        for (const n of pending) {
+          if (partners.includes(n.id)) {
+            pending.delete(n)
+            block.push(n)
+          }
+        }
+      }
+      block.sort((a, b) => a.x - b.x || a.id.localeCompare(b.id))
+      blocks.push(block)
+    }
+    blocks.sort((a, b) => Math.min(...a.map((n) => n.x)) - Math.min(...b.map((n) => n.x)))
+    nodes.splice(0, nodes.length, ...blocks.flat())
     const preferredCenter = nodes.reduce((sum, n) => sum + n.x, 0) / nodes.length
     nodes.forEach((n, i) => {
       n.x = i === 0 ? n.x : Math.max(n.x, nodes[i - 1].x + 330)
-      n.y = y
     })
     const actualCenter = nodes.reduce((sum, n) => sum + n.x, 0) / nodes.length
     nodes.forEach((n) => (n.x += preferredCenter - actualCenter))
+    // Use the child row's final order. The discovery order can invert two
+    // parent couples even when each couple is kept together.
+    const anchored = blocks.flatMap((block, index) => {
+      const children = new Set(block.flatMap((n) => [...(childrenByParent.get(n.id) ?? [])]))
+      const nextRow = [...children].filter((child) => child.level === level + 1)
+      if (!nextRow.length) return []
+      const center = nextRow.reduce((sum, child) => sum + child.x, 0) / nextRow.length
+      return [{ block, index, center }]
+    })
+    const positions = nodes.map((node) => node.x)
+    const byChildPosition = [...anchored].sort((a, b) => a.center - b.center)
+    anchored.forEach(({ index }, i) => (blocks[index] = byChildPosition[i].block))
+    nodes.splice(0, nodes.length, ...blocks.flat())
+    nodes.forEach((node, i) => (node.x = positions[i]))
+  }
+  let y = 0
+  for (const [, nodes] of orderedRows) {
+    nodes.forEach((node) => (node.y = y))
     y += Math.max(...nodes.map((n) => n.height)) + 110
   }
   const nodes = [...rows.values()].flat(),
@@ -139,50 +195,10 @@ export function layoutTree(project: Project): Layout {
     n.x -= dx
     n.y -= dy
   })
-  const byId = new Map(nodes.map((n) => [n.id, n])),
-    edges: string[] = []
-  for (const f of data.families) {
-    const parents = f.parents.map((id) => byId.get(id)).filter((n): n is TreeNode => !!n)
-    const children = f.children.map((id) => byId.get(id)).filter((n): n is TreeNode => !!n)
-    if (parents.length && children.length) {
-      const busY = Math.min(...children.map((c) => c.y)) - 48
-      const px = parents.reduce((sum, p) => sum + p.x, 0) / parents.length
-      const allSameRow = parents.every((p) => p.y === parents[0].y)
-      const parentY =
-        parents.length === 2 && allSameRow
-          ? parents[0].y + 45
-          : Math.max(...parents.map((p) => p.y + p.height)) + (parents.length > 1 ? 22 : 0)
-      if (parents.length !== 2 || !allSameRow) {
-        parents.forEach((p) => edges.push(`M ${p.x} ${p.y + p.height} V ${parentY}`))
-        if (parents.length > 1)
-          edges.push(
-            `M ${Math.min(...parents.map((p) => p.x))} ${parentY} H ${Math.max(...parents.map((p) => p.x))}`,
-          )
-      }
-      edges.push(`M ${px} ${parentY} V ${busY}`)
-      const xs = [px, ...children.map((c) => c.x)]
-      edges.push(`M ${Math.min(...xs)} ${busY} H ${Math.max(...xs)}`)
-      children.forEach((c) => edges.push(`M ${c.x} ${busY} V ${c.y}`))
-    } else if (children.length > 1) {
-      const top = Math.min(...children.map((n) => n.y)) - 48
-      const xs = children.map((n) => n.x)
-      edges.push(`M ${Math.min(...xs)} ${top} H ${Math.max(...xs)}`)
-      children.forEach((n) => edges.push(`M ${n.x} ${n.y} V ${top}`))
-    }
-    if (parents.length > 1) {
-      for (let i = 1; i < parents.length; i++) {
-        const a = parents[i - 1],
-          b = parents[i]
-        if (a.y === b.y)
-          edges.push(
-            `M ${a.x + (a.x < b.x ? 125 : -125)} ${a.y + 45} H ${b.x + (b.x > a.x ? -125 : 125)}`,
-          )
-      }
-    }
-  }
-  const minX = Math.min(...nodes.map((n) => n.x - 125)) - 90,
+  const edges = routeTree(nodes, data.families)
+  const minX = Math.min(...nodes.map((n) => n.x - n.width / 2)) - 90,
     minY = Math.min(...nodes.map((n) => n.y)) - 80
-  const maxX = Math.max(...nodes.map((n) => n.x + 125)) + 90,
+  const maxX = Math.max(...nodes.map((n) => n.x + n.width / 2)) + 90,
     maxY = Math.max(...nodes.map((n) => n.y + n.height)) + 80
   return { nodes, edges: [...new Set(edges)], minX, minY, width: maxX - minX, height: maxY - minY }
 }

@@ -10,6 +10,8 @@ export type BookPage = {
   width: number
   height: number
   storyTop: number
+  nameX: number
+  nameY: number
   photo?: { x: number; y: number; width: number; height: number }
   totalForPerson: number
 }
@@ -57,20 +59,22 @@ export function bookPages(project: Project): BookPage[] {
       w - 2 * margin - (hasPhoto && b.photoPosition !== 'top' ? 128 : 0),
       `400 34px "${projectTheme(project).font}"`,
     )
-    let top = 90 + nameLines.length * 38
+    const nameX = hasPhoto && b.photoPosition === 'left' ? margin + 130 : margin
+    const nameY = hasPhoto && b.photoPosition === 'top' ? 230 : 125
+    const continuationTop = nameY + nameLines.length * 38 + 40
+    let top = nameY + nameLines.length * 38 + 14
     let photo: BookPage['photo']
     if (hasPhoto) {
       if (b.photoPosition === 'top') {
-        photo = { x: w / 2 - 48, y: 55, width: 96, height: 112 }
-        top += 130
+        photo = { x: w / 2 - 48, y: 70, width: 96, height: 112 }
       } else {
         photo = {
           x: b.photoPosition === 'left' ? margin : w - margin - 100,
-          y: 70,
+          y: 100,
           width: 100,
           height: 120,
         }
-        top = Math.max(top, 212)
+        top = Math.max(top, 242)
       }
     }
     const factData: [string, string][] = []
@@ -92,7 +96,7 @@ export function bookPages(project: Project): BookPage[] {
       facts.push({ label, lines, y: top })
       top += Math.max(28, lines.length * 19 + 10)
     }
-    const storyTop = top + (facts.length ? 30 : 10)
+    const storyTop = top + (facts.length ? 52 : 30)
     const story = b.story ? plainStory(p.story).trim() : ''
     const lines = story ? measuredWrap(story, w - margin * 2, `${b.fontSize}px Inter`) : []
     const leading = b.fontSize * 1.65,
@@ -107,6 +111,8 @@ export function bookPages(project: Project): BookPage[] {
       continuation,
       lines: [],
       nameLines,
+      nameX,
+      nameY,
       facts: [],
       width: w,
       height: h,
@@ -127,13 +133,15 @@ export function bookPages(project: Project): BookPage[] {
             continuation,
             lines: [],
             nameLines,
+            nameX,
+            nameY,
             facts: [],
             width: w,
             height: h,
-            storyTop: Math.max(150, 110 + nameLines.length * 30),
+            storyTop: continuationTop,
             totalForPerson: 1,
           }
-          cursor = Math.max(150, 110 + nameLines.length * 30)
+          cursor = continuationTop
         }
         const capacity = Math.max(1, Math.floor((bottom - cursor - 10) / 19)),
           chunk = remaining.splice(0, capacity)
@@ -146,17 +154,19 @@ export function bookPages(project: Project): BookPage[] {
         first = false
       }
     }
-    cursor += facts.length ? 30 : 10
+    cursor += facts.length ? 52 : 30
     page.storyTop = cursor
     const nextPage = () => {
       personPages.push(page)
       continuation++
-      cursor = Math.max(150, 110 + nameLines.length * 30)
+      cursor = continuationTop
       page = {
         person: p,
         continuation,
         lines: [],
         nameLines,
+        nameX,
+        nameY,
         facts: [],
         width: w,
         height: h,

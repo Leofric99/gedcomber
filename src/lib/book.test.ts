@@ -68,4 +68,23 @@ describe('book pagination', () => {
     const d = demoDataset()
     expect(parseGedcom(exportGedcom(d)).people['@I1@'].story).toBe(d.people['@I1@'].story)
   })
+  it('keeps title coordinates and size consistent through every photo placement and continuation', () => {
+    for (const photoPosition of ['left', 'right', 'top'] as const) {
+      const p = newProject(demoDataset(), '@I1@')
+      p.book.ids = ['@I1@']
+      p.book.size = 'a5'
+      p.book.landscape = true
+      p.book.photoPosition = photoPosition
+      p.dataset.people['@I1@'].photo = 'data:image/jpeg;base64,test'
+      p.dataset.people['@I1@'].story = 'A story of a life well lived. '.repeat(300)
+      const pages = bookPages(p)
+      expect(pages.length).toBeGreaterThan(1)
+      for (const page of pages) {
+        expect(page.nameX).toBe(pages[0].nameX)
+        expect(page.nameY).toBe(pages[0].nameY)
+        expect(page.nameY).toBeGreaterThanOrEqual(125)
+        expect(page.lines[0].y - (page.storyTop - 36) - p.book.fontSize).toBeGreaterThanOrEqual(14)
+      }
+    }
+  })
 })

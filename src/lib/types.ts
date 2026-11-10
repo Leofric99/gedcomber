@@ -14,6 +14,8 @@ export type Person = {
   notes: string
   story: string
   photo?: string
+  photoOriginal?: string
+  photoCrop?: { zoom: number; x: number; y: number }
 }
 export type Family = { id: string; parents: string[]; children: string[] }
 export type Dataset = {

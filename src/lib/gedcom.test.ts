@@ -94,13 +94,13 @@ describe('progressive tree expansion', () => {
     const p = newProject(parseGedcom(ged), '@I1@')
     expect(layoutTree(p).nodes.map((n) => n.id)).toEqual(['@I1@'])
   })
-  it('shows only requested relations, balances siblings and hides them when collapsed', () => {
+  it('places siblings to the left and hides them when collapsed', () => {
     const p = newProject(parseGedcom(ged), '@I1@')
     p.expanded['@I1@'] = { siblings: true }
     const l = layoutTree(p)
     expect(l.nodes).toHaveLength(4)
-    expect(l.nodes.filter((n) => n.x < 0)).toHaveLength(2)
-    expect(l.nodes.filter((n) => n.x > 0)).toHaveLength(1)
+    expect(l.nodes.filter((n) => n.x < 0)).toHaveLength(3)
+    expect(l.nodes.filter((n) => n.x > 0)).toHaveLength(0)
     p.expanded['@I1@'].siblings = false
     expect(layoutTree(p).nodes).toHaveLength(1)
   })
