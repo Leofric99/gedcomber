@@ -1,0 +1,70 @@
+.gitignore
+  h_2fb16336b691a1 1-4
+.prettierrc.json
+  h_2fb16336b691a1 1
+README.md
+  h_2fb16336b691a1 1-65
+index.html
+  h_2fb16336b691a1 1
+package-lock.json
+  h_2fb16336b691a1 1-2638
+package.json
+  h_2fb16336b691a1 1-33
+src/App.tsx
+  h_2fb16336b691a1 1-1017
+src/components/Artwork.tsx
+  h_2fb16336b691a1 1-355
+src/components/BookArtwork.tsx
+  h_2fb16336b691a1 1-143
+src/components/BookWorkspace.tsx
+  h_2fb16336b691a1 1-272
+src/components/Controls.tsx
+  h_2fb16336b691a1 1-175
+src/components/PersonEditor.tsx
+  h_2fb16336b691a1 1-205
+src/components/TreeCanvas.tsx
+  h_2fb16336b691a1 1-208
+src/lib/book.test.ts
+  h_2fb16336b691a1 1-71
+src/lib/book.ts
+  h_2fb16336b691a1 1-201
+src/lib/demo.ts
+  h_2fb16336b691a1 1-113
+src/lib/exports.tsx
+  h_2fb16336b691a1 1-145
+src/lib/format.ts
+  h_2fb16336b691a1 1-85
+src/lib/gedcom.test.ts
+  h_2fb16336b691a1 1-147
+src/lib/gedcom.ts
+  h_2fb16336b691a1 1-207
+src/lib/storage.test.ts
+  h_2fb16336b691a1 1-32
+src/lib/storage.ts
+  h_2fb16336b691a1 1-179
+src/lib/themes.ts
+  h_2fb16336b691a1 1-55
+src/lib/tree.ts
+  h_2fb16336b691a1 1-188
+src/lib/types.ts
+  h_2fb16336b691a1 1-114
+src/main.tsx
+  h_2fb16336b691a1 1-15
+src/styles.css
+  h_2fb16336b691a1 1-1809
+tsconfig.json
+  h_2fb16336b691a1 1-18
+vite.config.ts
+  h_2fb16336b691a1 1-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9af7058157db152d184eb60dbb54393ce85a820c",
+  "prompts": {},
+  "humans": {
+    "h_2fb16336b691a1": {
+      "author": "chrhodge <chrhodge@cisco.com>"
+    }
+  }
+}
