@@ -179,6 +179,34 @@ export function layoutTree(project: Project): Layout {
     const positions = nodes.map((node) => node.x)
     const byChildPosition = [...anchored].sort((a, b) => a.center - b.center)
     anchored.forEach(({ index }, i) => (blocks[index] = byChildPosition[i].block))
+
+    // Insert siblings at the anchor's open side, shifting the other blocks
+    // along the row. Keep spouses of those siblings beyond the sibling run.
+    for (const node of nodes) {
+      if (!project.expanded[node.id]?.siblings) continue
+      const rel = relatives(data, node.id)
+      const siblingIds = new Set(rel.siblings)
+      const own = blocks.find((block) => block.includes(node))!
+      const others = blocks.filter(
+        (block) => block !== own && block.some((member) => siblingIds.has(member.id)),
+      )
+      if (!others.length) continue
+      const partner = rel.partners.map((id) => byId.get(id)).find((n) => n && own.includes(n))
+      const toRight = partner !== undefined && own.indexOf(partner) < own.indexOf(node)
+      const members = others.flat()
+      const siblings = members.filter((member) => siblingIds.has(member.id))
+      const companions = [...others]
+        .reverse()
+        .flat()
+        .filter((member) => !siblingIds.has(member.id))
+      const at = own.indexOf(node)
+      const joined = toRight
+        ? [...own.slice(0, at + 1), ...siblings, ...companions, ...own.slice(at + 1)]
+        : [...own.slice(0, at), ...companions, ...siblings, ...own.slice(at)]
+      blocks[blocks.indexOf(own)] = joined
+      for (const block of others) blocks.splice(blocks.indexOf(block), 1)
+    }
+
     nodes.splice(0, nodes.length, ...blocks.flat())
     nodes.forEach((node, i) => (node.x = positions[i]))
   }

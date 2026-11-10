@@ -159,6 +159,7 @@ export function TreeNodes({
   interactive = false,
 }: Props) {
   const uid = useId().replace(/:/g, '')
+  const nodesById = new Map(layout.nodes.map((node) => [node.id, node]))
   return (
     <g>
       {layout.edges.map((d, i) => (
@@ -169,6 +170,10 @@ export function TreeNodes({
           photo = project.display.photos && person.photo,
           textTop = photo ? 110 : 32,
           rel = interactive ? relatives(project.dataset, n.id) : null
+        const partner = rel?.partners
+          .map((id) => nodesById.get(id))
+          .find((p) => p?.level === n.level)
+        const siblingsRight = partner !== undefined && partner.x < n.x
         const controls: {
           group: keyof Expansion
           x: number
@@ -177,8 +182,20 @@ export function TreeNodes({
           label: string
         }[] = [
           { group: 'parents', x: 0, y: -19, symbol: '↑', label: 'parents' },
-          { group: 'siblings', x: -145, y: 44, symbol: '←', label: 'siblings to the left' },
-          { group: 'partners', x: 145, y: 44, symbol: '♡', label: 'partners' },
+          {
+            group: 'siblings',
+            x: siblingsRight ? 145 : -145,
+            y: 44,
+            symbol: siblingsRight ? '→' : '←',
+            label: siblingsRight ? 'siblings to the right' : 'siblings to the left',
+          },
+          {
+            group: 'partners',
+            x: siblingsRight ? -145 : 145,
+            y: 44,
+            symbol: '♡',
+            label: 'partners',
+          },
           { group: 'children', x: 0, y: n.height + 19, symbol: '↓', label: 'children' },
         ]
         return (

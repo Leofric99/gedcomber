@@ -51,6 +51,31 @@ function familyProject() {
 }
 
 describe('family units', () => {
+  it('places siblings together on the right when the spouse is on the left', () => {
+    const project = familyProject()
+    project.expanded = {
+      '@I0@': { parents: true },
+      '@I1@': { parents: true },
+      '@I5@': { siblings: true },
+    }
+    project.dataset.people.extra = { ...project.dataset.people['@I6@'], id: 'extra' }
+    project.dataset.families.push({
+      id: 'emily-siblings',
+      parents: [],
+      children: ['@I5@', '@I6@', 'extra'],
+    })
+    const layout = layoutTree(project)
+    const row = layout.nodes.filter((node) => node.level === -1).map((node) => node.id)
+    const emily = row.indexOf('@I5@')
+    expect(row[emily - 1]).toBe('@I4@')
+    expect(row.slice(emily + 1, emily + 3).sort()).toEqual(['@I6@', 'extra'])
+    expect(row[emily + 3]).toBe('@I7@')
+    const html = renderToStaticMarkup(
+      <TreeNodes project={project} layout={layout} theme={projectTheme(project)} interactive />,
+    )
+    expect(html).toContain('Hide siblings to the right of Emily Kirby')
+  })
+
   it('gives three overlapping spans one horizontal level each without stepping', () => {
     const node = (id: string, x: number, y: number) => ({
       id,
@@ -159,9 +184,7 @@ describe('family units', () => {
         Math.abs(row.findIndex((n) => n.id === pair[0]) - row.findIndex((n) => n.id === pair[1])),
       ).toBe(1)
     }
-    expect(row.findIndex((n) => n.id === '@I6@')).toBeLessThan(
-      row.findIndex((n) => n.id === '@I4@'),
-    )
+    expect(row.findIndex((n) => n.id === '@I6@') + 1).toBe(row.findIndex((n) => n.id === '@I4@'))
     const harold = row.find((n) => n.id === '@I2@')!,
       beryl = row.find((n) => n.id === '@I3@')!
     const doris = row.find((n) => n.id === '@I6@')!

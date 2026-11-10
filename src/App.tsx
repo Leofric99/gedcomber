@@ -963,10 +963,10 @@ export default function App() {
           <div className="help-content">
             <h3>Grow one branch at a time</h3>
             <p>
-              Start with one primary person. Use the arrow above a card for parents, the left arrow
-              for siblings, the heart on the right for partners, and the lower arrow for children.
-              Click an open control again to collapse that branch. People connected through another
-              open branch can remain visible.
+              Start with one primary person. Use the arrow above a card for parents, the side arrow
+              for siblings, the heart for partners, and the lower arrow for children. Click an open
+              control again to collapse that branch. People connected through another open branch
+              can remain visible.
             </p>
             <h3>Keep every detail</h3>
             <p>
