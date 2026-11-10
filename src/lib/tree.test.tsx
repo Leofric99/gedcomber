@@ -51,6 +51,45 @@ function familyProject() {
 }
 
 describe('family units', () => {
+  it('gives three overlapping spans one horizontal level each without stepping', () => {
+    const node = (id: string, x: number, y: number) => ({
+      id,
+      x,
+      y,
+      width: 250,
+      height: 210,
+      level: y === 0 ? -1 : 0,
+      name: [],
+      details: [],
+    })
+    const relationships = [
+      { id: 'frances', parentX: 2310, childX: 1155 },
+      { id: 'vanessa', parentX: 990, childX: 495 },
+      { id: 'harold', parentX: 1650, childX: 825 },
+    ]
+    const edges = routeTree(
+      relationships.flatMap(({ id, parentX, childX }) => [
+        node(id + '-left', parentX - 165, 0),
+        node(id + '-right', parentX + 165, 0),
+        node(id, childX, 320),
+      ]),
+      relationships.map(({ id }) => ({
+        id,
+        parents: [id + '-left', id + '-right'],
+        children: [id],
+      })),
+    )
+    const buses = edges.flatMap((edge) => {
+      const [, x, y, direction, end] = edge.split(' ')
+      return direction === 'H' && Number(y) > 210 ? [{ x: +x, y: +y, end: +end }] : []
+    })
+    expect(buses).toHaveLength(3)
+    const heights = [495, 825, 1155].map((x) => buses.find((bus) => bus.x === x)!.y)
+    expect(heights[0]).toBeLessThan(heights[1])
+    expect(heights[1]).toBeLessThan(heights[2])
+    expect(buses.map((bus) => bus.end).sort((a, b) => a - b)).toEqual([990, 1650, 2310])
+  })
+
   it('orders parent couples by the displayed positions of Emily and Reginald', () => {
     const project = familyProject()
     project.dataset.families = [

@@ -97,6 +97,46 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
 
   function connect(owner: number, anchors: Port[], lanes: number[]) {
     const occupied = groups.flatMap((group) => (group.owner === owner ? [] : group.paths))
+    const offsets = [0, -18, 18, -30, 30]
+    const busFor = (ports: number[], y: number) =>
+      segments([
+        { x: Math.min(...ports), y },
+        { x: Math.max(...ports), y },
+      ])
+    const isClear = (path: Segment[]) =>
+      path.every((s) => !hitsCard(s) && !occupied.some((other) => intersection(s, other)))
+
+    // Try a single horizontal level before considering any sideways detours.
+    // Test the complete bus as well as the legs so a clear leg cannot hide a crossing.
+    for (const y of lanes) {
+      const ports = anchors.map((anchor) =>
+        offsets
+          .map((offset) => anchor.x + offset)
+          .find((x) =>
+            isClear(
+              segments([
+                { x, y: anchor.y },
+                { x, y },
+              ]),
+            ),
+          ),
+      )
+      if (ports.some((x) => x === undefined)) continue
+      const xs = ports as number[]
+      const bus = busFor(xs, y)
+      if (!isClear(bus)) continue
+      addGroup(owner, [
+        ...anchors.flatMap((anchor, i) =>
+          segments([
+            { x: xs[i], y: anchor.y },
+            { x: xs[i], y },
+          ]),
+        ),
+        ...bus,
+      ])
+      return
+    }
+
     let best: Segment[] = [],
       bestCost = Infinity
     for (const y of lanes) {
@@ -108,7 +148,7 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
           legCost = Infinity,
           busX = anchor.x
         const existing = occupied
-        for (const offset of [0, -18, 18, -30, 30]) {
+        for (const offset of offsets) {
           const x = anchor.x + offset
           const start = { x, y: anchor.y }
           const direct = segments([start, { x, y }])
@@ -139,10 +179,7 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
         legs.push(...leg)
         ports.push(busX)
       }
-      const bus = segments([
-        { x: Math.min(...ports), y },
-        { x: Math.max(...ports), y },
-      ])
+      const bus = busFor(ports, y)
       total += cost(bus, occupied)
       if (total < bestCost) {
         bestCost = total
@@ -157,6 +194,7 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
     y: n.y + n.height,
     gutter: rowBottom.get(n.y)! + 22,
   })
+  const byChildRow = new Map<number, { owner: number; anchors: Port[]; lanes: number[] }[]>()
   for (const { parents, children, couple, owner } of units) {
     if (!children.length) {
       if (!couple && parents.length > 1) {
@@ -170,7 +208,9 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
     const childTop = Math.min(...children.map((n) => n.y))
     const prev = rowTops[rowTops.indexOf(childTop) - 1]
     const lowerBound = prev === undefined ? childTop - 80 : rowBottom.get(prev)! + 12
-    const lanes = [48, 64, 36, 80].map((offset) => childTop - offset).filter((y) => y >= lowerBound)
+    const lanes = [48, 64, 36, 80, 56, 72, 88, 96]
+      .map((offset) => childTop - offset)
+      .filter((y) => y >= lowerBound)
     const starts = couple
       ? [
           {
@@ -180,11 +220,59 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
           },
         ]
       : parents.map(bottomPort)
-    connect(
+    const row = byChildRow.get(childTop) ?? []
+    row.push({
       owner,
-      [...starts, ...children.map((n) => ({ x: n.x, y: n.y, gutter: n.y - 36 }))],
+      anchors: [...starts, ...children.map((n) => ({ x: n.x, y: n.y, gutter: n.y - 36 }))],
       lanes,
+    })
+    byChildRow.set(childTop, row)
+  }
+
+  for (const [childTop, row] of byChildRow) {
+    const referenceY = childTop - 48
+    const spans = row.map(({ anchors }) => ({
+      min: Math.min(...anchors.map((anchor) => anchor.x)),
+      max: Math.max(...anchors.map((anchor) => anchor.x)),
+    }))
+    const above = (a: number, b: number) => {
+      const inside = (x: number, span: { min: number; max: number }) => x > span.min && x < span.max
+      // A parent stem must stop before a lower bus. A child leg must start
+      // below an upper bus. These constraints determine the order of the levels.
+      return (
+        row[a].anchors.some((p) => p.y < referenceY && inside(p.x, spans[b])) ||
+        row[b].anchors.some((p) => p.y > referenceY && inside(p.x, spans[a]))
+      )
+    }
+    const followers = row.map((_, a) =>
+      row.flatMap((__, b) => (a !== b && above(a, b) && !above(b, a) ? [b] : [])),
     )
+    const incoming = row.map(() => 0),
+      ranks = row.map(() => 0)
+    followers.forEach((next) => next.forEach((b) => incoming[b]++))
+    const order = incoming.flatMap((count, i) => (count === 0 ? [i] : []))
+    for (let i = 0; i < order.length; i++) {
+      const a = order[i]
+      for (const b of followers[a]) {
+        ranks[b] = Math.max(ranks[b], ranks[a] + 1)
+        if (--incoming[b] === 0) order.push(b)
+      }
+    }
+    // Conflicting constraints still go through the obstacle-aware fallback.
+    row.forEach((_, i) => {
+      if (incoming[i] > 0) order.push(i)
+    })
+    const levels = [...new Set(row.flatMap(({ lanes }) => lanes))].sort((a, b) => a - b)
+    const maxRank = Math.max(...ranks)
+    for (const i of order) {
+      const { owner, anchors, lanes } = row[i]
+      const preferred =
+        maxRank === 0 ? referenceY : levels[Math.round((ranks[i] * (levels.length - 1)) / maxRank)]
+      const candidates = [...lanes].sort(
+        (a, b) => Math.abs(a - preferred) - Math.abs(b - preferred),
+      )
+      connect(owner, anchors, candidates)
+    }
   }
 
   // If the relationships force a crossing, leave a gap in the later route.
