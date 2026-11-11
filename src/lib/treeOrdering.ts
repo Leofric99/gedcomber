@@ -20,6 +20,14 @@ export function orderTreeRows(
   const priority = new Map(nodes.map((node, i) => [node, i]))
   const closest = (a: TreeNode, b: TreeNode) =>
     distance.get(a.id)! - distance.get(b.id)! || priority.get(a)! - priority.get(b)!
+  const partnerOf = (anchor: TreeNode) =>
+    relations
+      .find(
+        ({ parents }) =>
+          parents.includes(anchor) &&
+          parents.some((node) => node !== anchor && node.level === anchor.level),
+      )
+      ?.parents.find((node) => node !== anchor && node.level === anchor.level)
   const siblingRuns = rows.flatMap(([level]) =>
     relations.flatMap(({ children }) => {
       const siblings = children.filter((node) => node.level === level).sort(closest)
@@ -28,18 +36,25 @@ export function orderTreeRows(
       for (const { parents } of relations)
         if (parents.some((node) => siblings.includes(node)))
           parents.forEach((node) => allowed.add(node))
-      return [{ level, siblings, anchor: siblings[0], allowed }]
+      return [{ level, siblings, anchor: siblings[0], partner: partnerOf(siblings[0]), allowed }]
     }),
   )
   const validRuns = (ordered: TreeNode[], level: number) =>
     siblingRuns
       .filter((run) => run.level === level)
-      .every(({ siblings, anchor, allowed }) => {
+      .every(({ siblings, anchor, partner, allowed }) => {
         const positions = siblings.map((node) => ordered.indexOf(node))
         const left = Math.min(...positions),
           right = Math.max(...positions)
         return (
           (ordered[left] === anchor || ordered[right] === anchor) &&
+          (!partner ||
+            siblings.every(
+              (sibling) =>
+                sibling === anchor ||
+                Math.sign(ordered.indexOf(sibling) - ordered.indexOf(anchor)) ===
+                  Math.sign(ordered.indexOf(anchor) - ordered.indexOf(partner)),
+            )) &&
           ordered.slice(left, right + 1).every((node) => allowed.has(node))
         )
       })
@@ -96,6 +111,12 @@ export function orderTreeRows(
             ),
           ),
           anchor: group.findIndex((unit) => unit.includes(run.anchor)),
+          side: run.partner
+            ? group.find((unit) => unit.includes(run.anchor))!.indexOf(run.anchor) <
+              group.find((unit) => unit.includes(run.partner!))!.indexOf(run.partner)
+              ? 'last'
+              : 'first'
+            : 'either',
         }))
       const used = new Set<number>(),
         failed = new Set<string>()
@@ -113,10 +134,13 @@ export function orderTreeRows(
             .join('')
           if (equivalent.has(signature)) continue
           equivalent.add(signature)
-          const legal = rules.every(({ members, anchor }) => {
+          const legal = rules.every(({ members, anchor, side }) => {
             const count = [...used].filter((index) => members.has(index)).length
             if (count > 0 && count < members.size && !members.has(candidate)) return false
-            return candidate !== anchor || count === 0 || count === members.size - 1
+            if (candidate !== anchor) return true
+            if (side === 'first') return count === 0
+            if (side === 'last') return count === members.size - 1
+            return count === 0 || count === members.size - 1
           })
           if (!legal) continue
           used.add(candidate)

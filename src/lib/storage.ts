@@ -109,6 +109,9 @@ export function validateProject(value: unknown): Project {
     )
   if (
     !validDisplay(p.display) ||
+    (p.personBoxes !== undefined && typeof p.personBoxes !== 'boolean') ||
+    (p.decorationSize !== undefined &&
+      (!Number.isFinite(p.decorationSize) || p.decorationSize < 0.5 || p.decorationSize > 2)) ||
     !validDisplay(p.book.display) ||
     !['a4', 'a5', 'letter'].includes(p.book.size) ||
     typeof p.book.landscape !== 'boolean' ||

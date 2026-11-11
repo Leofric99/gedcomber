@@ -3,11 +3,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { parseGedcom } from './gedcom'
 import { newProject } from './types'
 import { layoutTree } from './tree'
-import { routeTree } from './treeRouting'
+import { CONNECTOR_SPACING, routeTree, treeGenerationGaps } from './treeRouting'
 import { projectTheme } from './themes'
-import { TreeNodes } from '../components/Artwork'
+import { TreeNodes, TreePrint } from '../components/Artwork'
 import { personDetails } from './format'
 import { orderTreeRows } from './treeOrdering'
+import { spaceTreeFamilies } from './treeSpacing'
 
 function familyProject() {
   const names = [
@@ -52,6 +53,235 @@ function familyProject() {
 }
 
 describe('family units', () => {
+  it('shows the child arrow on the closest partner, retaining both for separate children', () => {
+    const project = familyProject()
+    project.dataset.families = [
+      { id: 'siblings', parents: [], children: ['@I0@', '@I4@'] },
+      { id: 'couple', parents: ['@I4@', '@I5@'], children: ['@I6@'] },
+    ]
+    project.expanded = { '@I0@': { siblings: true } }
+    const render = () =>
+      renderToStaticMarkup(
+        <TreeNodes
+          project={project}
+          layout={layoutTree(project)}
+          theme={projectTheme(project)}
+          interactive
+        />,
+      )
+    expect(render()).toContain('Show children of Robert White')
+    expect(render()).not.toContain('Show children of Emily Kirby')
+    // An additional family record for the same couple is still shared children.
+    project.dataset.families.push({
+      id: 'more-shared',
+      parents: ['@I4@', '@I5@'],
+      children: ['@I7@'],
+    })
+    expect(render()).not.toContain('Show children of Emily Kirby')
+    project.dataset.families.pop()
+    project.dataset.families.push({ id: 'separate', parents: ['@I5@'], children: ['@I7@'] })
+    expect(render()).toContain('Show children of Robert White')
+    expect(render()).toContain('Show children of Emily Kirby')
+    project.dataset.families.pop()
+    project.primary = '@I5@'
+    project.expanded = {}
+    expect(render()).toContain('Show children of Emily Kirby')
+    expect(render()).not.toContain('Show children of Robert White')
+    project.expanded['@I5@'] = { children: true }
+    expect(render()).toContain('Hide children of Emily Kirby')
+  })
+
+  it('hides redundant child and sibling expansion controls while retaining collapse controls', () => {
+    const project = familyProject()
+    project.dataset.families = [
+      { id: 'origin', parents: ['@I2@', '@I3@'], children: ['@I0@', '@I4@', '@I6@'] },
+      { id: 'main', parents: ['@I0@', '@I1@'], children: ['@I7@'] },
+      { id: 'sibling', parents: ['@I4@', '@I5@'], children: [] },
+    ]
+    project.expanded = { '@I0@': { parents: true } }
+    const render = () =>
+      renderToStaticMarkup(
+        <TreeNodes
+          project={project}
+          layout={layoutTree(project)}
+          theme={projectTheme(project)}
+          interactive
+        />,
+      )
+    let html = render()
+    expect(html).not.toContain('Show children of Harold Hodges')
+    expect(html).not.toContain('Show children of Beryl Gearing')
+    expect(html).toContain('Show children of Colin Hodges')
+    expect(html).toContain('Show siblings to the left of Colin Hodges')
+    project.expanded['@I0@'].siblings = true
+    html = render()
+    expect(html).toContain('Hide siblings to the left of Colin Hodges')
+    expect(html).not.toMatch(/Show siblings [^"]* of (Robert White|Doris White)/)
+    expect(html).not.toContain('children of Robert White')
+    project.expanded['@I0@'].children = true
+    expect(render()).toContain('Hide children of Colin Hodges')
+    project.expanded['@I0@'].siblings = false
+    expect(render()).toContain('Show siblings to the left of Colin Hodges')
+  })
+
+  it('separates independent ancestor couples above a wide sibling row to shorten their links', () => {
+    const ids = [
+      'primary',
+      ...Array.from({ length: 9 }, (_, i) => [`sibling-${i}`, `spouse-${i}`]).flat(),
+      ...[0, 4, 8].flatMap((i) => [`father-${i}`, `mother-${i}`]),
+    ]
+    const dataset = parseGedcom(
+      `0 HEAD\n${ids.map((id) => `0 @${id}@ INDI\n1 NAME ${id} /Example/`).join('\n')}\n0 TRLR`,
+    )
+    dataset.families = [
+      { id: 'primary-parents', parents: ['@sibling-4@', '@spouse-4@'], children: ['@primary@'] },
+      {
+        id: 'siblings',
+        parents: [],
+        children: Array.from({ length: 9 }, (_, i) => `@sibling-${i}@`),
+      },
+      ...Array.from({ length: 9 }, (_, i) => ({
+        id: `couple-${i}`,
+        parents: [`@sibling-${i}@`, `@spouse-${i}@`],
+        children: [],
+      })),
+      ...[0, 4, 8].map((i) => ({
+        id: `ancestors-${i}`,
+        parents: [`@father-${i}@`, `@mother-${i}@`],
+        children: [`@spouse-${i}@`],
+      })),
+    ]
+    const project = newProject(dataset, '@primary@')
+    project.expanded = { '@primary@': { parents: true }, '@sibling-4@': { siblings: true } }
+    for (const i of [0, 4, 8]) project.expanded[`@spouse-${i}@`] = { parents: true }
+    const layout = layoutTree(project)
+    const node = (id: string) => layout.nodes.find((n) => n.id === `@${id}@`)!
+    const top = layout.nodes.filter((n) => n.level === -2).sort((a, b) => a.x - b.x)
+    expect(top).toHaveLength(6)
+    expect(Math.max(top[2].x - top[1].x, top[4].x - top[3].x)).toBeGreaterThan(660)
+    for (const i of [0, 4, 8]) {
+      expect(Math.abs(node(`father-${i}`).x - node(`mother-${i}`).x)).toBe(330)
+      expect((node(`father-${i}`).x + node(`mother-${i}`).x) / 2).toBeCloseTo(node(`spouse-${i}`).x)
+    }
+    const middle = layout.nodes.filter((n) => n.level === -1).sort((a, b) => a.x - b.x)
+    for (let i = 1; i < middle.length; i++) expect(middle[i].x - middle[i - 1].x).toBe(330)
+    expect((node('sibling-4').x + node('spouse-4').x) / 2).toBeCloseTo(node('primary').x)
+    // Spacing must be stable on repeated renders, including exported layouts.
+    expect(layoutTree(project)).toEqual(layout)
+  })
+
+  it('keeps ordinary generations compact when their links are already short', () => {
+    const makeNode = (id: string, x: number, level: number) => ({
+      id,
+      x,
+      y: level * 220,
+      level,
+      width: 250,
+      height: 100,
+      name: [],
+      details: [],
+    })
+    const parents = [makeNode('a-parent', 0, -1), makeNode('b-parent', 330, -1)]
+    const children = [makeNode('a', 100, 0), makeNode('b', 430, 0)]
+    const rows: [number, typeof parents][] = [
+      [-1, parents],
+      [0, children],
+    ]
+    const before = rows.flatMap(([, row]) => row.map((node) => node.x))
+    spaceTreeFamilies(
+      rows,
+      [
+        { id: 'a', parents: ['a-parent'], children: ['a'] },
+        { id: 'b', parents: ['b-parent'], children: ['b'] },
+      ],
+      'a',
+      new Map([
+        ['a', 0],
+        ['a-parent', 1],
+        ['b', 2],
+        ['b-parent', 3],
+      ]),
+    )
+    expect(rows.flatMap(([, row]) => row.map((node) => node.x))).toEqual(before)
+  })
+
+  it('removes only the person boxes in canvas and print views', () => {
+    const project = familyProject()
+    project.dataset.people['@I0@'].photo = 'data:image/jpeg;base64,AA=='
+    const layout = layoutTree(project)
+    const theme = projectTheme(project)
+    const boxed = renderToStaticMarkup(
+      <svg>
+        <TreeNodes project={project} layout={layout} theme={theme} interactive />
+      </svg>,
+    )
+    project.personBoxes = false
+    const skeletal = renderToStaticMarkup(
+      <svg>
+        <TreeNodes
+          project={project}
+          layout={layout}
+          theme={theme}
+          interactive
+          selected={project.primary}
+        />
+      </svg>,
+    )
+    expect(layoutTree(project)).toEqual(layout)
+    const boxes = skeletal.match(/<rect\b[^>]*>/g)!
+    expect(boxes).toHaveLength(layout.nodes.length)
+    expect(
+      boxes.every((rect) => rect.includes('fill="transparent"') && rect.includes('stroke="none"')),
+    ).toBe(true)
+    for (const pattern of [
+      /<text\b[^>]*>[\s\S]*?<\/text>/g,
+      /<image\b[^>]*>/g,
+      /<path\b[^>]*>/g,
+      /aria-label="[^"]*"/g,
+    ])
+      expect(skeletal.match(pattern)).toEqual(boxed.match(pattern))
+    const printed = renderToStaticMarkup(
+      <TreePrint project={project} layout={layout} theme={theme} title="" subtitle="" />,
+    )
+    expect(printed.match(/fill="transparent" stroke="none"/g)).toHaveLength(layout.nodes.length)
+    delete project.personBoxes
+    const legacy = renderToStaticMarkup(
+      <svg>
+        <TreeNodes project={project} layout={layout} theme={theme} interactive />
+      </svg>,
+    )
+    expect(legacy).toBe(boxed)
+  })
+
+  it('centers the primary person under their parents without centering an asymmetric export on them', () => {
+    const project = familyProject()
+    project.dataset.families = [
+      { id: 'origin', parents: ['@I2@', '@I3@'], children: ['@I0@', '@I4@'] },
+      { id: 'primary-couple', parents: ['@I0@', '@I1@'], children: [] },
+      { id: 'sibling-couple', parents: ['@I4@', '@I5@'], children: [] },
+    ]
+    project.expanded = { '@I0@': { parents: true, siblings: true } }
+    const layout = layoutTree(project)
+    const node = (id: string) => layout.nodes.find((node) => node.id === id)!
+    const midpoint = (node('@I2@').x + node('@I3@').x) / 2
+    expect(node(project.primary).x).toBeCloseTo(midpoint)
+    expect(node(project.primary).y).toBeGreaterThan(node('@I2@').y)
+    expect(Math.abs(layout.minX + layout.width / 2 - node(project.primary).x)).toBeGreaterThan(1)
+    const width = Math.max(760, layout.width)
+    const translation = (width - layout.width) / 2 - layout.minX
+    const printed = renderToStaticMarkup(
+      <TreePrint
+        project={project}
+        layout={layout}
+        theme={projectTheme(project)}
+        title=""
+        subtitle=""
+      />,
+    )
+    expect(printed).toContain(`translate(${translation} ${35 - layout.minY})`)
+    expect(Math.abs(node(project.primary).x + translation - width / 2)).toBeGreaterThan(1)
+  })
+
   it('keeps Eleanor and Robin consecutive without Lee’s siblings between them', () => {
     const names = [
       'Lee',
@@ -105,6 +335,11 @@ describe('family units', () => {
         }
         assertSiblingRun(['@I0@', '@I2@', '@I4@'], ['@I1@', '@I3@'], '@I0@')
         assertSiblingRun(['@I1@', '@I5@'], ['@I0@'], '@I1@')
+        const lee = ids.indexOf('@I0@'),
+          eleanor = ids.indexOf('@I1@')
+        for (const sibling of ['@I2@', '@I4@'])
+          expect(Math.sign(ids.indexOf(sibling) - lee)).toBe(Math.sign(lee - eleanor))
+        expect(Math.sign(ids.indexOf('@I5@') - eleanor)).toBe(Math.sign(eleanor - lee))
         expect(Math.abs(ids.indexOf('@I0@') - ids.indexOf('@I1@'))).toBe(1)
         expect(Math.abs(ids.indexOf('@I2@') - ids.indexOf('@I3@'))).toBe(1)
       }
@@ -224,18 +459,24 @@ describe('family units', () => {
       { id: 'vanessa', parentX: 990, childX: 495 },
       { id: 'harold', parentX: 1650, childX: 825 },
     ]
-    const edges = routeTree(
-      relationships.flatMap(({ id, parentX, childX }) => [
-        node(id + '-left', parentX - 165, 0),
-        node(id + '-right', parentX + 165, 0),
-        node(id, childX, 320),
-      ]),
-      relationships.map(({ id }) => ({
-        id,
-        parents: [id + '-left', id + '-right'],
-        children: [id],
-      })),
-    )
+    const nodes = relationships.flatMap(({ id, parentX, childX }) => [
+      node(id + '-left', parentX - 165, 0),
+      node(id + '-right', parentX + 165, 0),
+      node(id, childX, 320),
+    ])
+    const families = relationships.map(({ id }) => ({
+      id,
+      parents: [id + '-left', id + '-right'],
+      children: [id],
+    }))
+    const gap = treeGenerationGaps(nodes, families).get(0)!
+    expect(gap).toBeGreaterThan(110)
+    nodes
+      .filter((node) => node.level === 0)
+      .forEach((node) => {
+        node.y = 210 + gap
+      })
+    const edges = routeTree(nodes, families)
     const buses = edges.flatMap((edge) => {
       const [, x, y, direction, end] = edge.split(' ')
       return direction === 'H' && Number(y) > 210 ? [{ x: +x, y: +y, end: +end }] : []
@@ -244,7 +485,11 @@ describe('family units', () => {
     const heights = [495, 825, 1155].map((x) => buses.find((bus) => bus.x === x)!.y)
     expect(heights[0]).toBeLessThan(heights[1])
     expect(heights[1]).toBeLessThan(heights[2])
+    expect(heights[1] - heights[0]).toBeGreaterThanOrEqual(CONNECTOR_SPACING)
+    expect(heights[2] - heights[1]).toBeGreaterThanOrEqual(CONNECTOR_SPACING)
     expect(buses.map((bus) => bus.end).sort((a, b) => a - b)).toEqual([990, 1650, 2310])
+    // A separate, simple generation should retain the normal compact gap.
+    expect(treeGenerationGaps(nodes, [families[0]]).get(0)).toBe(110)
   })
 
   it('orders parent couples by the displayed positions of Emily and Reginald', () => {

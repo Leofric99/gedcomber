@@ -1,7 +1,8 @@
 import type { Dataset, Display, Expansion, Project } from './types'
 import { personDetails, personName } from './format'
-import { routeTree } from './treeRouting'
+import { routeTree, treeGenerationGaps } from './treeRouting'
 import { orderTreeRows } from './treeOrdering'
+import { spaceTreeFamilies } from './treeSpacing'
 export function relatives(data: Dataset, id: string): Record<keyof Expansion, string[]> {
   const parents: string[] = [],
     siblings: string[] = [],
@@ -135,10 +136,41 @@ export function layoutTree(project: Project): Layout {
     data.families,
     new Map([...visited].map(([id, pos]) => [id, pos.distance])),
   )
+  // Align the primary person's row with their own parents, rather than the
+  // center of all visible relatives. Translate descendants together so their
+  // existing spouse/sibling order and relative connections are preserved.
+  const visibleNodes = [...rows.values()].flat()
+  const visibleById = new Map(visibleNodes.map((node) => [node.id, node]))
+  const primary = visibleById.get(project.primary)!
+  const parents =
+    data.families
+      .filter((family) => family.children.includes(primary.id))
+      .map((family) =>
+        family.parents.flatMap((id) => {
+          const node = visibleById.get(id)
+          return node && node.level < primary.level ? [node] : []
+        }),
+      )
+      .sort((a, b) => b.length - a.length)[0] ?? []
+  if (parents.length) {
+    const offset = parents.reduce((sum, parent) => sum + parent.x, 0) / parents.length - primary.x
+    visibleNodes.forEach((node) => {
+      if (node.level >= primary.level) node.x += offset
+    })
+  }
+  spaceTreeFamilies(
+    orderedRows,
+    data.families,
+    project.primary,
+    new Map([...visited].map(([id, pos]) => [id, pos.distance])),
+  )
+  const generationGaps = treeGenerationGaps([...rows.values()].flat(), data.families)
   let y = 0
-  for (const [, nodes] of orderedRows) {
+  for (let i = 0; i < orderedRows.length; i++) {
+    const [, nodes] = orderedRows[i]
     nodes.forEach((node) => (node.y = y))
-    y += Math.max(...nodes.map((n) => n.height)) + 110
+    const nextLevel = orderedRows[i + 1]?.[0]
+    y += Math.max(...nodes.map((n) => n.height)) + (generationGaps.get(nextLevel) ?? 110)
   }
   const nodes = [...rows.values()].flat(),
     root = nodes.find((n) => n.id === project.primary)!
@@ -149,9 +181,24 @@ export function layoutTree(project: Project): Layout {
     n.y -= dy
   })
   const edges = routeTree(nodes, data.families)
-  const minX = Math.min(...nodes.map((n) => n.x - n.width / 2)) - 90,
-    minY = Math.min(...nodes.map((n) => n.y)) - 80
-  const maxX = Math.max(...nodes.map((n) => n.x + n.width / 2)) + 90,
-    maxY = Math.max(...nodes.map((n) => n.y + n.height)) + 80
+  // Wider routing lanes can extend above the first generation or around the
+  // outside of a row. Include them in fitting and export bounds.
+  const edgePoints = edges.flatMap((edge) => {
+    const [, x, y, direction, end] = edge.split(' ')
+    return [
+      { x: +x, y: +y },
+      { x: direction === 'H' ? +end : +x, y: direction === 'V' ? +end : +y },
+    ]
+  })
+  const minX = Math.min(
+      ...nodes.map((n) => n.x - n.width / 2 - 90),
+      ...edgePoints.map((p) => p.x - 20),
+    ),
+    minY = Math.min(...nodes.map((n) => n.y - 80), ...edgePoints.map((p) => p.y - 20))
+  const maxX = Math.max(
+      ...nodes.map((n) => n.x + n.width / 2 + 90),
+      ...edgePoints.map((p) => p.x + 20),
+    ),
+    maxY = Math.max(...nodes.map((n) => n.y + n.height + 80), ...edgePoints.map((p) => p.y + 20))
   return { nodes, edges: [...new Set(edges)], minX, minY, width: maxX - minX, height: maxY - minY }
 }

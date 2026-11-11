@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDownToLine,
   ArrowRight,
@@ -37,7 +37,8 @@ import {
 import { themes, projectTheme } from './lib/themes'
 import { demoDataset } from './lib/demo'
 import { layoutTree } from './lib/tree'
-import { Modal, Field, FormatControls, Section } from './components/Controls'
+import { rasterSize, treePrintMetrics } from './lib/exportSizing'
+import { Modal, Field, FormatControls, Section, Toggle } from './components/Controls'
 import { Ornament, TreePrint } from './components/Artwork'
 import { TreeCanvas } from './components/TreeCanvas'
 import { PersonEditor } from './components/PersonEditor'
@@ -203,11 +204,15 @@ export default function App() {
     if (!project) return
     setBusy('Preparing your tree…')
     try {
-      await (
+      const result = await (
         await import('./lib/exports')
       ).exportTree(project, format, scale, exportTitle, exportSubtitle)
       setExportOpen(false)
-      notify('Your tree export is ready.')
+      notify(
+        result
+          ? `Your tree export is ready: ${result.width.toLocaleString()} × ${result.height.toLocaleString()} pixels${result.reduced ? ' (sized to fit)' : ''}.`
+          : 'Your tree export is ready.',
+      )
     } catch (err) {
       notify((err as Error).message, true)
     } finally {
@@ -239,6 +244,16 @@ export default function App() {
           .sort((a, b) => personName(a).localeCompare(personName(b)))
       : []
   const theme = project ? projectTheme(project) : themes[0]
+  const exportLayout = useMemo(
+    () => (exportOpen && project ? layoutTree(project) : null),
+    [exportOpen, project?.dataset, project?.expanded, project?.display, project?.primary],
+  )
+  const exportMetrics = exportLayout
+    ? treePrintMetrics(exportLayout, exportTitle, exportSubtitle, project?.decorationSize)
+    : null
+  const exportPixels = exportMetrics
+    ? rasterSize(exportMetrics.width, exportMetrics.height, scale)
+    : null
   if (!ready)
     return (
       <div className="loading">
@@ -281,8 +296,9 @@ export default function App() {
             <div className="top-actions">
               <button
                 className="icon-btn"
-                title="Open GEDCOM"
-                aria-label="Open GEDCOM"
+                title="Start a new tree from a GEDCOM"
+                aria-label="Start a new tree from a GEDCOM"
+                disabled={importing}
                 onClick={() => uploadRef.current?.click()}
               >
                 <FolderOpen size={18} />
@@ -666,6 +682,12 @@ export default function App() {
                         </div>
                       </Section>
                       <Section title="Person cards">
+                        <Toggle
+                          label="Show person boxes"
+                          checked={project.personBoxes !== false}
+                          onChange={(personBoxes) => setProject({ ...project, personBoxes })}
+                          hint="Turn off for an open, skeletal tree."
+                        />
                         <FormatControls
                           display={project.display}
                           onChange={(display) => setProject({ ...project, display })}
@@ -688,6 +710,22 @@ export default function App() {
                         </Field>
                       </Section>
                       <Section title="Project files">
+                        <button
+                          className="btn full"
+                          disabled={importing}
+                          onClick={() => uploadRef.current?.click()}
+                        >
+                          {importing ? (
+                            <LoaderCircle size={14} className="spin" />
+                          ) : (
+                            <FileUp size={14} />
+                          )}
+                          Start a new tree from GEDCOM
+                        </button>
+                        <p className="help">
+                          Choose a new file and primary person to start fresh. You can save a backup
+                          of this project before replacing it.
+                        </p>
                         <button
                           className="btn full"
                           onClick={() => {
@@ -904,13 +942,13 @@ export default function App() {
             <div className="export-preview">
               <TreePrint
                 project={project}
-                layout={layoutTree(project)}
+                layout={exportLayout!}
                 theme={theme}
                 title={exportTitle}
                 subtitle={exportSubtitle}
               />
               <span>
-                {layoutTree(project).nodes.length} visible people · {theme.label} theme
+                {exportLayout!.nodes.length} visible people · {theme.label} theme
               </span>
             </div>
             <div>
@@ -939,9 +977,31 @@ export default function App() {
                   <option value={4}>Print quality · 4×</option>
                 </select>
               </Field>
+              <Field label="Decoration size">
+                <select
+                  value={project.decorationSize ?? 1}
+                  onChange={(e) =>
+                    setProject({ ...project, decorationSize: Number(e.target.value) })
+                  }
+                >
+                  <option value={0.75}>Subtle · 75%</option>
+                  <option value={1}>Balanced · 100%</option>
+                  <option value={1.5}>Prominent · 150%</option>
+                  <option value={2}>Bold · 200%</option>
+                </select>
+              </Field>
+              {format !== 'svg' && exportPixels && (
+                <p className="help">
+                  Image size: {exportPixels.width.toLocaleString()} ×{' '}
+                  {exportPixels.height.toLocaleString()} pixels.
+                  {exportPixels.reduced &&
+                    ' Automatically reduced to fit a large image. Text will be smaller; SVG preserves full detail.'}
+                </p>
+              )}
               <p className="help">
                 Exports all currently expanded people, including those outside the viewport. Hidden
-                branches and editing controls are omitted. SVG scales to any size.
+                branches and editing controls are omitted. Decorations scale with the artwork. Large
+                images are sized to fit; SVG keeps full detail at any zoom.
               </p>
             </div>
           </div>

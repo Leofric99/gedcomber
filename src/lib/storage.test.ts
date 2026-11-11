@@ -7,8 +7,21 @@ describe('project backups', () => {
     const p = newProject(demoDataset(), '@I1@')
     p.expanded['@I1@'] = { parents: true, siblings: true }
     p.book.ids = ['@I1@']
+    p.personBoxes = false
+    p.decorationSize = 1.5
     p.dataset.people['@I1@'].photo = 'data:image/jpeg;base64,AA=='
     expect(validateProject(JSON.parse(JSON.stringify(p)))).toEqual(p)
+  })
+  it('accepts older backups without the box setting and rejects invalid values', () => {
+    const p = newProject(demoDataset(), '@I1@')
+    delete p.personBoxes
+    delete p.decorationSize
+    expect(validateProject(p).personBoxes).toBeUndefined()
+    p.personBoxes = 'off' as never
+    expect(() => validateProject(p)).toThrow('display or book settings')
+    p.personBoxes = false
+    p.decorationSize = Infinity
+    expect(() => validateProject(p)).toThrow('display or book settings')
   })
   it('rejects invalid book limits, page sizes, and unsafe photo references', () => {
     const p = newProject(demoDataset(), '@I1@')

@@ -1,18 +1,35 @@
-import { useId } from 'react'
+import { useId, useMemo } from 'react'
 import type { Theme, Project, Expansion } from '../lib/types'
 import type { Layout } from '../lib/tree'
 import { relatives } from '../lib/tree'
+import { childExpansionOwners } from '../lib/treeControls'
+import { roundedRelationshipPaths } from '../lib/treeCorners'
+import { treePrintMetrics } from '../lib/exportSizing'
+import { TreeBorder } from './TreeBorder'
 export function Ornament({
   theme,
   width,
   height,
   borderless = false,
+  scale = 1,
 }: {
   theme: Theme
   width: number
   height: number
   borderless?: boolean
+  scale?: number
 }) {
+  if (scale !== 1)
+    return (
+      <g transform={`scale(${scale})`}>
+        <Ornament
+          theme={theme}
+          width={width / scale}
+          height={height / scale}
+          borderless={borderless}
+        />
+      </g>
+    )
   if (theme.decoration === 'minimal')
     return (
       <>
@@ -160,9 +177,11 @@ export function TreeNodes({
 }: Props) {
   const uid = useId().replace(/:/g, '')
   const nodesById = new Map(layout.nodes.map((node) => [node.id, node]))
+  const relationshipPaths = useMemo(() => roundedRelationshipPaths(layout.edges), [layout.edges])
+  const childControls = interactive ? childExpansionOwners(project, layout) : new Set<string>()
   return (
     <g>
-      {layout.edges.map((d, i) => (
+      {relationshipPaths.map((d, i) => (
         <path key={i} d={d} fill="none" stroke={theme.line} strokeWidth="1.4" />
       ))}
       {layout.nodes.map((n) => {
@@ -221,8 +240,14 @@ export function TreeNodes({
                 width="250"
                 height={n.height}
                 rx={theme.id === 'modern' ? 3 : 8}
-                fill={theme.card}
-                stroke={selected === n.id && interactive ? theme.accent : theme.line}
+                fill={project.personBoxes === false ? 'transparent' : theme.card}
+                stroke={
+                  project.personBoxes === false
+                    ? 'none'
+                    : selected === n.id && interactive
+                      ? theme.accent
+                      : theme.line
+                }
                 strokeWidth={selected === n.id && interactive ? 2.5 : 0.7}
               />
               {n.id === project.primary && (
@@ -283,9 +308,22 @@ export function TreeNodes({
             </g>
             {interactive &&
               controls
-                .filter((c) =>
-                  c.group === 'partners' ? rel!.partners.length > 1 : rel![c.group].length,
-                )
+                .filter((c) => {
+                  if (c.group === 'partners') return rel!.partners.length > 1
+                  if (!rel![c.group].length) return false
+                  // Keep the owner of an open branch available for collapsing.
+                  if (project.expanded[n.id]?.[c.group]) return true
+                  if (c.group === 'children')
+                    return childControls.has(n.id) && !rel!.children.some((id) => nodesById.has(id))
+                  if (c.group === 'siblings')
+                    return !(
+                      rel!.siblings.every((id) => nodesById.has(id)) &&
+                      rel!.siblings.some(
+                        (id) => nodesById.has(id) && project.expanded[id]?.siblings,
+                      )
+                    )
+                  return true
+                })
                 .map((c) => (
                   <g
                     key={c.group}
@@ -337,9 +375,12 @@ export function TreePrint({
   subtitle,
   fontCSS = '',
 }: Props & { title: string; subtitle: string; fontCSS?: string }) {
-  const width = Math.max(760, layout.width),
-    top = title || subtitle ? 160 : 35,
-    height = layout.height + top + 35
+  const { width, height, top, decorationScale } = treePrintMetrics(
+    layout,
+    title,
+    subtitle,
+    project.decorationSize,
+  )
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -349,11 +390,18 @@ export function TreePrint({
     >
       <style>{fontCSS}</style>
       <rect width={width} height={height} fill={theme.paper} />
-      <Ornament theme={theme} width={width} height={height} />
+      <TreeBorder
+        theme={theme}
+        width={width}
+        height={height}
+        scale={decorationScale}
+        title={title}
+        subtitle={subtitle}
+      />
       {title && (
         <text
           x={width / 2}
-          y="75"
+          y={top - 85}
           textAnchor="middle"
           fontFamily={theme.font}
           fontSize="38"
@@ -365,7 +413,7 @@ export function TreePrint({
       {subtitle && (
         <text
           x={width / 2}
-          y={title ? 108 : 75}
+          y={top - (title ? 52 : 85)}
           textAnchor="middle"
           fontFamily="Inter"
           fontSize="12"

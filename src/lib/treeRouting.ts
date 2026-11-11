@@ -5,6 +5,84 @@ type Point = { x: number; y: number }
 type Segment = { from: Point; to: Point }
 type Port = Point & { gutter: number }
 
+// Twice the previous 16px routing step, shared by row spacing and routing.
+export const CONNECTOR_SPACING = 32
+const CHILD_CLEARANCE = 48
+
+function connectionOrder(row: { anchors: Point[] }[], referenceY: number) {
+  const spans = row.map(({ anchors }) => ({
+    min: Math.min(...anchors.map((anchor) => anchor.x)),
+    max: Math.max(...anchors.map((anchor) => anchor.x)),
+  }))
+  const inside = (x: number, span: { min: number; max: number }) => x > span.min && x < span.max
+  const above = (a: number, b: number) =>
+    row[a].anchors.some((p) => p.y < referenceY && inside(p.x, spans[b])) ||
+    row[b].anchors.some((p) => p.y > referenceY && inside(p.x, spans[a]))
+  const followers = row.map((_, a) =>
+    row.flatMap((__, b) => (a !== b && above(a, b) && !above(b, a) ? [b] : [])),
+  )
+  const incoming = row.map(() => 0),
+    ranks = row.map(() => 0)
+  followers.forEach((next) => next.forEach((b) => incoming[b]++))
+  const order = incoming.flatMap((count, i) => (count === 0 ? [i] : []))
+  for (let i = 0; i < order.length; i++) {
+    const a = order[i]
+    for (const b of followers[a]) {
+      ranks[b] = Math.max(ranks[b], ranks[a] + 1)
+      if (--incoming[b] === 0) order.push(b)
+    }
+  }
+  row.forEach((_, i) => {
+    if (incoming[i] > 0) order.push(i)
+  })
+  const events = spans
+    .flatMap(({ min, max }) => [
+      { x: min, delta: 1 },
+      { x: max, delta: -1 },
+    ])
+    .sort((a, b) => a.x - b.x || b.delta - a.delta)
+  let overlap = 0,
+    maximum = 0
+  for (const event of events) {
+    overlap += event.delta
+    maximum = Math.max(maximum, overlap)
+  }
+  return { order, ranks, laneCount: Math.max(1, maximum, ...ranks.map((rank) => rank + 1)) }
+}
+
+/** Reserve extra room only at generation boundaries that need more lanes. */
+export function treeGenerationGaps(nodes: TreeNode[], families: Family[]) {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const byLevel = new Map<number, { anchors: Point[] }[]>()
+  for (const family of families) {
+    const parents = family.parents
+      .flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []))
+      .sort((a, b) => a.x - b.x)
+    const children = family.children.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []))
+    if (!children.length || (!parents.length && children.length < 2)) continue
+    const level = Math.min(...children.map((node) => node.level))
+    const [left, right] = parents
+    const couple =
+      parents.length === 2 &&
+      left.level === right.level &&
+      !nodes.some((node) => node.level === left.level && node.x > left.x && node.x < right.x)
+    const starts = couple
+      ? [{ x: (left.x + right.x) / 2, y: -1 }]
+      : parents.map((node) => ({ x: node.x, y: node.level < level ? -1 : 1 }))
+    const row = byLevel.get(level) ?? []
+    row.push({
+      anchors: [...starts, ...children.map((node) => ({ x: node.x, y: 1 }))],
+    })
+    byLevel.set(level, row)
+  }
+  return new Map(
+    [...byLevel].map(([level, row]) => [
+      level,
+      Math.max(110, CHILD_CLEARANCE + CONNECTOR_SPACING * connectionOrder(row, 0).laneCount),
+    ]),
+  )
+}
+
 function segments(points: Point[]): Segment[] {
   return points.slice(1).flatMap((to, i) => {
     const from = points[i]
@@ -14,6 +92,15 @@ function segments(points: Point[]): Segment[] {
 
 const horizontal = (s: Segment) => s.from.y === s.to.y
 const range = (a: number, b: number) => [Math.min(a, b), Math.max(a, b)] as const
+
+function parallelClearance(a: Segment, b: Segment) {
+  if (horizontal(a) !== horizontal(b)) return Infinity
+  const axis = horizontal(a) ? 'x' : 'y'
+  const other = axis === 'x' ? 'y' : 'x'
+  const [aStart, aEnd] = range(a.from[axis], a.to[axis])
+  const [bStart, bEnd] = range(b.from[axis], b.to[axis])
+  return aEnd < bStart || bEnd < aStart ? Infinity : Math.abs(a.from[other] - b.from[other])
+}
 
 // Return the interval along the first segment occupied by the second.
 function intersection(a: Segment, b: Segment) {
@@ -35,13 +122,13 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
     rowBottom.set(n.y, Math.max(rowBottom.get(n.y) ?? -Infinity, n.y + n.height))
   const rowTops = [...rowBottom.keys()].sort((a, b) => a - b)
   const outside = [
-    Math.min(...nodes.map((n) => n.x - n.width / 2)) - 42,
-    Math.max(...nodes.map((n) => n.x + n.width / 2)) + 42,
+    Math.min(...nodes.map((n) => n.x - n.width / 2)) - 84,
+    Math.max(...nodes.map((n) => n.x + n.width / 2)) + 84,
   ]
   const channels = [
     ...new Set([
       ...outside,
-      ...nodes.flatMap((n) => [n.x - n.width / 2 - 14, n.x + n.width / 2 + 14]),
+      ...nodes.flatMap((n) => [n.x - n.width / 2 - 28, n.x + n.width / 2 + 28]),
     ]),
   ]
   const groups: { owner: number; paths: Segment[] }[] = []
@@ -67,6 +154,7 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
       for (const other of existing) {
         const hit = intersection(s, other)
         if (hit) total += 2000 + (hit[1] - hit[0]) * 50
+        else if (parallelClearance(s, other) < CONNECTOR_SPACING) total += 2000
       }
     }
     return total
@@ -97,14 +185,26 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
 
   function connect(owner: number, anchors: Port[], lanes: number[]) {
     const occupied = groups.flatMap((group) => (group.owner === owner ? [] : group.paths))
-    const offsets = [0, -18, 18, -30, 30]
+    const offsets = [
+      0,
+      -CONNECTOR_SPACING,
+      CONNECTOR_SPACING,
+      -2 * CONNECTOR_SPACING,
+      2 * CONNECTOR_SPACING,
+    ]
     const busFor = (ports: number[], y: number) =>
       segments([
         { x: Math.min(...ports), y },
         { x: Math.max(...ports), y },
       ])
     const isClear = (path: Segment[]) =>
-      path.every((s) => !hitsCard(s) && !occupied.some((other) => intersection(s, other)))
+      path.every(
+        (s) =>
+          !hitsCard(s) &&
+          !occupied.some(
+            (other) => intersection(s, other) || parallelClearance(s, other) < CONNECTOR_SPACING,
+          ),
+      )
 
     // Try a single horizontal level before considering any sideways detours.
     // Test the complete bus as well as the legs so a clear leg cannot hide a crossing.
@@ -192,76 +292,60 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
   const bottomPort = (n: TreeNode): Port => ({
     x: n.x,
     y: n.y + n.height,
-    gutter: rowBottom.get(n.y)! + 22,
+    gutter: rowBottom.get(n.y)! + CONNECTOR_SPACING,
   })
   const byChildRow = new Map<number, { owner: number; anchors: Port[]; lanes: number[] }[]>()
+  const topFamilyCount = units.filter(
+    ({ parents, children }) =>
+      children.length &&
+      (parents.length || children.length > 1) &&
+      children.some((node) => node.y === rowTops[0]),
+  ).length
   for (const { parents, children, couple, owner } of units) {
     if (!children.length) {
       if (!couple && parents.length > 1) {
         const ports = parents.map(bottomPort)
         const y = Math.max(...ports.map((port) => port.gutter))
-        connect(owner, ports, [y, y + 16, y + 32])
+        connect(owner, ports, [y, y + CONNECTOR_SPACING, y + 2 * CONNECTOR_SPACING])
       }
       continue
     }
     if (!parents.length && children.length < 2) continue
     const childTop = Math.min(...children.map((n) => n.y))
     const prev = rowTops[rowTops.indexOf(childTop) - 1]
-    const lowerBound = prev === undefined ? childTop - 80 : rowBottom.get(prev)! + 12
-    const lanes = [48, 64, 36, 80, 56, 72, 88, 96]
-      .map((offset) => childTop - offset)
-      .filter((y) => y >= lowerBound)
+    const lowerBound =
+      prev === undefined
+        ? childTop - CHILD_CLEARANCE - CONNECTOR_SPACING * Math.max(0, topFamilyCount - 1)
+        : rowBottom.get(prev)! + CONNECTOR_SPACING
+    const lanes: number[] = []
+    for (let y = childTop - CHILD_CLEARANCE; y >= lowerBound; y -= CONNECTOR_SPACING) lanes.push(y)
+    // routeTree is also used with caller-supplied positions. Keep those routable
+    // even if their generation gap is smaller than the layout's reserved space.
+    if (!lanes.length) lanes.push(childTop - CHILD_CLEARANCE)
     const starts = couple
       ? [
           {
             x: (parents[0].x + parents[1].x) / 2,
             y: parents[0].y + 45,
-            gutter: rowBottom.get(parents[0].y)! + 22,
+            gutter: rowBottom.get(parents[0].y)! + CONNECTOR_SPACING,
           },
         ]
       : parents.map(bottomPort)
     const row = byChildRow.get(childTop) ?? []
     row.push({
       owner,
-      anchors: [...starts, ...children.map((n) => ({ x: n.x, y: n.y, gutter: n.y - 36 }))],
+      anchors: [
+        ...starts,
+        ...children.map((n) => ({ x: n.x, y: n.y, gutter: n.y - CHILD_CLEARANCE })),
+      ],
       lanes,
     })
     byChildRow.set(childTop, row)
   }
 
   for (const [childTop, row] of byChildRow) {
-    const referenceY = childTop - 48
-    const spans = row.map(({ anchors }) => ({
-      min: Math.min(...anchors.map((anchor) => anchor.x)),
-      max: Math.max(...anchors.map((anchor) => anchor.x)),
-    }))
-    const above = (a: number, b: number) => {
-      const inside = (x: number, span: { min: number; max: number }) => x > span.min && x < span.max
-      // A parent stem must stop before a lower bus. A child leg must start
-      // below an upper bus. These constraints determine the order of the levels.
-      return (
-        row[a].anchors.some((p) => p.y < referenceY && inside(p.x, spans[b])) ||
-        row[b].anchors.some((p) => p.y > referenceY && inside(p.x, spans[a]))
-      )
-    }
-    const followers = row.map((_, a) =>
-      row.flatMap((__, b) => (a !== b && above(a, b) && !above(b, a) ? [b] : [])),
-    )
-    const incoming = row.map(() => 0),
-      ranks = row.map(() => 0)
-    followers.forEach((next) => next.forEach((b) => incoming[b]++))
-    const order = incoming.flatMap((count, i) => (count === 0 ? [i] : []))
-    for (let i = 0; i < order.length; i++) {
-      const a = order[i]
-      for (const b of followers[a]) {
-        ranks[b] = Math.max(ranks[b], ranks[a] + 1)
-        if (--incoming[b] === 0) order.push(b)
-      }
-    }
-    // Conflicting constraints still go through the obstacle-aware fallback.
-    row.forEach((_, i) => {
-      if (incoming[i] > 0) order.push(i)
-    })
+    const referenceY = childTop - CHILD_CLEARANCE
+    const { order, ranks } = connectionOrder(row, referenceY)
     const levels = [...new Set(row.flatMap(({ lanes }) => lanes))].sort((a, b) => a - b)
     const maxRank = Math.max(...ranks)
     for (const i of order) {

@@ -7,6 +7,7 @@ import { projectTheme } from './themes'
 import { bookPages } from './book'
 import { download } from './storage'
 import type { Project } from './types'
+import { rasterSize, treePrintMetrics } from './exportSizing'
 import interURL from '@fontsource/inter/files/inter-latin-400-normal.woff2?url'
 import cormorantURL from '@fontsource/cormorant-garamond/files/cormorant-garamond-latin-400-normal.woff2?url'
 let fontPromise: Promise<string> | undefined
@@ -32,28 +33,52 @@ export function embeddedFonts() {
   return fontPromise
 }
 export async function rasterize(svg: string, width: number, height: number, scale: number) {
-  if (width * height * scale * scale > 64000000 || Math.max(width, height) * scale > 16384)
-    throw new Error(
-      'This tree is too large at that resolution. Choose a lower resolution or export SVG for unlimited detail.',
-    )
-  const img = new Image(),
-    url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }))
-  try {
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve()
-      img.onerror = () => reject(new Error('The artwork could not be rendered.'))
-      img.src = url
-    })
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.ceil(width * scale)
-    canvas.height = Math.ceil(height * scale)
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('The browser cannot create the export canvas.')
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-    return canvas
-  } finally {
-    URL.revokeObjectURL(url)
+  const size = rasterSize(width, height, scale)
+  const artwork = new DOMParser().parseFromString(svg, 'image/svg+xml')
+  // Resize the SVG viewport as well as the canvas, so the browser never needs
+  // to decode an oversized intermediate bitmap. The viewBox retains all art.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const outputWidth = Math.max(1, Math.floor(size.width / 2 ** attempt))
+    const outputHeight = Math.max(1, Math.floor(size.height / 2 ** attempt))
+    artwork.documentElement.setAttribute('width', String(outputWidth))
+    artwork.documentElement.setAttribute('height', String(outputHeight))
+    const img = new Image(),
+      url = URL.createObjectURL(
+        new Blob([new XMLSerializer().serializeToString(artwork)], {
+          type: 'image/svg+xml;charset=utf-8',
+        }),
+      )
+    let canvas: HTMLCanvasElement | undefined
+    try {
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve()
+        img.onerror = () => reject(new Error('The artwork could not be rendered.'))
+        img.src = url
+      })
+      canvas = document.createElement('canvas')
+      canvas.width = outputWidth
+      canvas.height = outputHeight
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('The browser cannot create the export canvas.')
+      // Some devices have lower limits than desktop browsers. Detect allocation
+      // failures instead of returning an empty or silently truncated image.
+      ctx.getImageData(canvas.width - 1, canvas.height - 1, 1, 1)
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      return canvas
+    } catch (error) {
+      if (canvas) {
+        canvas.width = 0
+        canvas.height = 0
+      }
+      if (attempt === 3)
+        throw new Error(
+          `Unable to render this image on this device. Export SVG to keep the full tree. ${error instanceof Error ? error.message : ''}`,
+        )
+    } finally {
+      URL.revokeObjectURL(url)
+    }
   }
+  throw new Error('Unable to render the export.')
 }
 export async function exportTree(
   project: Project,
@@ -65,8 +90,7 @@ export async function exportTree(
   await document.fonts.ready
   const layout = layoutTree(project),
     theme = projectTheme(project),
-    width = Math.max(760, layout.width),
-    height = layout.height + (title || subtitle ? 160 : 35) + 35
+    { width, height } = treePrintMetrics(layout, title, subtitle, project.decorationSize)
   const svg = renderToStaticMarkup(
       <TreePrint
         project={project}
@@ -84,24 +108,35 @@ export async function exportTree(
     return
   }
   const canvas = await rasterize(svg, width, height, scale)
-  if (format === 'pdf') {
-    const factor = Math.min(1, 4000 / Math.max(width, height)),
-      w = width * factor,
-      h = height * factor
-    const doc = new jsPDF({
-      orientation: w > h ? 'landscape' : 'portrait',
-      unit: 'pt',
-      format: [w, h],
-      compress: true,
-    })
-    doc.addImage(canvas, 'PNG', 0, 0, w, h)
-    doc.save(filename + '.pdf')
-  } else {
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, format === 'png' ? 'image/png' : 'image/jpeg', 0.95),
-    )
-    if (!blob) throw new Error('Unable to encode the export.')
-    download(blob, filename + '.' + (format === 'jpeg' ? 'jpg' : 'png'), blob.type)
+  try {
+    if (format === 'pdf') {
+      const factor = Math.min(1, 4000 / Math.max(width, height)),
+        w = width * factor,
+        h = height * factor
+      const doc = new jsPDF({
+        orientation: w > h ? 'landscape' : 'portrait',
+        unit: 'pt',
+        format: [w, h],
+        compress: true,
+      })
+      doc.addImage(canvas, 'PNG', 0, 0, w, h)
+      doc.save(filename + '.pdf')
+    } else {
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, format === 'png' ? 'image/png' : 'image/jpeg', 0.95),
+      )
+      if (!blob) throw new Error('Unable to encode the export.')
+      download(blob, filename + '.' + (format === 'jpeg' ? 'jpg' : 'png'), blob.type)
+    }
+    return {
+      width: canvas.width,
+      height: canvas.height,
+      reduced:
+        canvas.width < Math.floor(width * scale) || canvas.height < Math.floor(height * scale),
+    }
+  } finally {
+    canvas.width = 0
+    canvas.height = 0
   }
 }
 export async function exportBook(project: Project, onProgress: (n: number, total: number) => void) {

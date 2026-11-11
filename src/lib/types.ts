@@ -73,6 +73,8 @@ export type Project = {
   expanded: Record<string, Expansion>
   display: Display
   theme: ThemeId
+  personBoxes?: boolean
+  decorationSize?: number
   colors: Partial<Pick<Theme, 'paper' | 'ink' | 'accent'>>
   title: string
   subtitle: string
@@ -98,6 +100,8 @@ export function newProject(dataset: Dataset, primary: string): Project {
     expanded: {},
     display: { ...defaultDisplay },
     theme: 'botanical',
+    personBoxes: true,
+    decorationSize: 1,
     colors: {},
     title: 'Our family tree',
     subtitle: 'Every branch has a story',
