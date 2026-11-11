@@ -11,6 +11,7 @@ export function TreeCanvas({
   onToggle,
   onViewport,
   onPrimary,
+  centerRequest = 0,
 }: {
   project: Project
   selected?: string
@@ -18,6 +19,7 @@ export function TreeCanvas({
   onToggle: (id: string, group: keyof Expansion) => void
   onViewport: (v: Project['viewport']) => void
   onPrimary: () => void
+  centerRequest?: number
 }) {
   const ref = useRef<HTMLDivElement>(null),
     [size, setSize] = useState({ width: 900, height: 700 }),
@@ -85,6 +87,17 @@ export function TreeCanvas({
     }
   }, [layout, size])
   const fit = () => commit(fitted)
+  const centered = useMemo(() => {
+    const primary = layout.nodes.find((node) => node.id === project.primary)!
+    return { x: -primary.x, y: -(primary.y + primary.height / 2), zoom: 1 }
+  }, [layout, project.primary])
+  const appliedCenter = useRef(centerRequest)
+  useEffect(() => {
+    if (appliedCenter.current === centerRequest) return
+    appliedCenter.current = centerRequest
+    setView(centered)
+    onViewport(centered)
+  }, [centerRequest, centered, onViewport])
   return (
     <div className="tree-stage" ref={ref}>
       <button className="canvas-primary btn" onClick={onPrimary} title="Change primary person">

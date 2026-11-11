@@ -177,18 +177,31 @@ export function TreeNodes({
 }: Props) {
   const uid = useId().replace(/:/g, '')
   const nodesById = new Map(layout.nodes.map((node) => [node.id, node]))
-  const relationshipPaths = useMemo(() => roundedRelationshipPaths(layout.edges), [layout.edges])
+  const dottedPaths = useMemo(() => new Set(layout.dottedEdges ?? []), [layout.dottedEdges])
+  const relationshipPaths = useMemo(
+    () => roundedRelationshipPaths(layout.edges, 8, dottedPaths),
+    [layout.edges, dottedPaths],
+  )
   const childControls = interactive ? childExpansionOwners(project, layout) : new Set<string>()
   return (
     <g>
       {relationshipPaths.map((d, i) => (
-        <path key={i} d={d} fill="none" stroke={theme.line} strokeWidth="1.4" />
+        <path
+          key={i}
+          d={d}
+          fill="none"
+          stroke={theme.line}
+          strokeWidth="1.4"
+          strokeDasharray={dottedPaths.has(d) ? '0.1 5' : undefined}
+          strokeLinecap={dottedPaths.has(d) ? 'round' : undefined}
+        />
       ))}
       {layout.nodes.map((n) => {
-        const person = project.dataset.people[n.id],
+        const personId = n.personId ?? n.id
+        const person = project.dataset.people[personId],
           photo = project.display.photos && person.photo,
           textTop = photo ? 110 : 32,
-          rel = interactive ? relatives(project.dataset, n.id) : null
+          rel = interactive ? relatives(project.dataset, personId) : null
         const partner = rel?.partners
           .map((id) => nodesById.get(id))
           .find((p) => p?.level === n.level)
@@ -225,12 +238,12 @@ export function TreeNodes({
             <g
               role={interactive ? 'button' : undefined}
               tabIndex={interactive ? 0 : undefined}
-              data-person-id={interactive ? n.id : undefined}
+              data-person-id={interactive ? personId : undefined}
               aria-label={interactive ? `Edit ${person.given} ${person.surname}` : undefined}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
-                  onSelect?.(n.id)
+                  onSelect?.(personId)
                 }
               }}
               style={{ cursor: interactive ? 'pointer' : undefined }}
@@ -244,12 +257,24 @@ export function TreeNodes({
                 stroke={
                   project.personBoxes === false
                     ? 'none'
-                    : selected === n.id && interactive
+                    : selected === personId && interactive
                       ? theme.accent
                       : theme.line
                 }
-                strokeWidth={selected === n.id && interactive ? 2.5 : 0.7}
+                strokeWidth={selected === personId && interactive ? 2.5 : 0.7}
               />
+              {n.repeated && (
+                <text
+                  x="108"
+                  y="16"
+                  textAnchor="middle"
+                  fill={theme.accent}
+                  fontSize="14"
+                  aria-label={`Repeated person: ${person.given} ${person.surname}. Same person record.`}
+                >
+                  <title>Same person, shown again to keep both families together.</title>↔
+                </text>
+              )}
               {n.id === project.primary && (
                 <path d="M -20 0 H 20" stroke={theme.accent} strokeWidth="3" />
               )}
@@ -309,6 +334,7 @@ export function TreeNodes({
             {interactive &&
               controls
                 .filter((c) => {
+                  if (n.spouseOnly) return false
                   if (c.group === 'partners') return rel!.partners.length > 1
                   if (!rel![c.group].length) return false
                   // Keep the owner of an open branch available for collapsing.

@@ -17,7 +17,7 @@ export type Person = {
   photoOriginal?: string
   photoCrop?: { zoom: number; x: number; y: number }
 }
-export type Family = { id: string; parents: string[]; children: string[] }
+export type Family = { id: string; parents: string[]; children: string[]; ended?: boolean }
 export type Dataset = {
   records: GedNode[]
   people: Record<string, Person>

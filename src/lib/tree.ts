@@ -1,8 +1,10 @@
-import type { Dataset, Display, Expansion, Project } from './types'
+import type { Dataset, Display, Expansion, Family, Project } from './types'
 import { personDetails, personName } from './format'
 import { routeTree, treeGenerationGaps } from './treeRouting'
 import { orderTreeRows } from './treeOrdering'
 import { spaceTreeFamilies } from './treeSpacing'
+import { relationshipEnded } from './relationships'
+import { separateIntermarriedFamilies } from './treeInstances'
 export function relatives(data: Dataset, id: string): Record<keyof Expansion, string[]> {
   const parents: string[] = [],
     siblings: string[] = [],
@@ -26,6 +28,9 @@ export function relatives(data: Dataset, id: string): Record<keyof Expansion, st
   ) as Record<keyof Expansion, string[]>
 }
 export type TreeNode = {
+  personId?: string
+  repeated?: boolean
+  spouseOnly?: string
   id: string
   x: number
   y: number
@@ -36,6 +41,7 @@ export type TreeNode = {
   details: string[]
 }
 export type Layout = {
+  dottedEdges?: string[]
   nodes: TreeNode[]
   edges: string[]
   width: number
@@ -77,9 +83,16 @@ export function cardText(data: Dataset, id: string, display: Display) {
 }
 export function layoutTree(project: Project): Layout {
   const data = project.dataset
-  const visited = new Map<string, { level: number; preferred: number; distance: number }>([
-    [project.primary, { level: 0, preferred: 0, distance: 0 }],
-  ])
+  const visited = new Map<
+    string,
+    {
+      level: number
+      preferred: number
+      distance: number
+      viaPartner?: boolean
+      spouseOnly?: string
+    }
+  >([[project.primary, { level: 0, preferred: 0, distance: 0 }]])
   const queue = [project.primary]
   for (let i = 0; i < queue.length; i++) {
     const id = queue[i],
@@ -90,8 +103,15 @@ export function layoutTree(project: Project): Layout {
       // A person's first spouse is part of their family unit. The control reveals
       // additional partners; a single-spouse family needs no partner control.
       if (!expansion[group] && group !== 'partners') continue
+      // The main spouse is part of the core tree. Prefer a partner already
+      // reached through the primary line, not the first marriage in the file.
+      // Never automatically follow a spouse to that spouse's other partners.
       const members =
-        group === 'partners' && !expansion.partners ? rel.partners.slice(0, 1) : rel[group]
+        group === 'partners'
+          ? rel.partners.some((other) => visited.has(other)) || pos.viaPartner
+            ? []
+            : rel.partners.slice(0, 1)
+          : rel[group]
       members.forEach((other, j) => {
         if (visited.has(other)) return
         const level = pos.level + (group === 'parents' ? -1 : group === 'children' ? 1 : 0)
@@ -105,16 +125,51 @@ export function layoutTree(project: Project): Layout {
           level,
           preferred: pos.preferred + offset * 330,
           distance: pos.distance + 1,
+          viaPartner: group === 'partners',
         })
         queue.push(other)
       })
     }
   }
+  // Additional spouses are opt-in leaves. Do this after traversing the core so
+  // stale expansion settings cannot pull in their other families.
+  for (const [id, pos] of [...visited]) {
+    if (!project.expanded[id]?.partners) continue
+    for (const other of relatives(data, id).partners) {
+      if (visited.has(other)) continue
+      visited.set(other, {
+        level: pos.level,
+        preferred: pos.preferred + 330,
+        distance: pos.distance + 1,
+        spouseOnly: id,
+      })
+    }
+  }
+  const familyRecords = new Map(
+    data.records.filter((record) => record.tag === 'FAM').map((record) => [record.xref, record]),
+  )
+  let families: Family[] = data.families
+    .map((family) => ({
+      ...family,
+      ended: family.ended ?? relationshipEnded(familyRecords.get(family.id)),
+    }))
+    .filter((family) =>
+      family.parents.every((id) => {
+        const owner = visited.get(id)?.spouseOnly
+        return !owner || family.parents.includes(owner)
+      }),
+    )
+    .map((family) =>
+      family.parents.some((id) => visited.get(id)?.spouseOnly)
+        ? { ...family, children: [] }
+        : family,
+    )
   const rows = new Map<number, TreeNode[]>()
   for (const [id, pos] of visited) {
     const text = cardText(data, id, project.display)
     const node: TreeNode = {
       id,
+      ...(pos.spouseOnly ? { spouseOnly: pos.spouseOnly } : {}),
       level: pos.level,
       x: pos.preferred,
       y: 0,
@@ -131,11 +186,9 @@ export function layoutTree(project: Project): Layout {
     rows.set(pos.level, row)
   }
   const orderedRows = [...rows].sort(([a], [b]) => a - b)
-  orderTreeRows(
-    orderedRows,
-    data.families,
-    new Map([...visited].map(([id, pos]) => [id, pos.distance])),
-  )
+  const distances = new Map([...visited].map(([id, pos]) => [id, pos.distance]))
+  families = separateIntermarriedFamilies(orderedRows, families, distances)
+  orderTreeRows(orderedRows, families, distances)
   // Align the primary person's row with their own parents, rather than the
   // center of all visible relatives. Translate descendants together so their
   // existing spouse/sibling order and relative connections are preserved.
@@ -143,7 +196,7 @@ export function layoutTree(project: Project): Layout {
   const visibleById = new Map(visibleNodes.map((node) => [node.id, node]))
   const primary = visibleById.get(project.primary)!
   const parents =
-    data.families
+    families
       .filter((family) => family.children.includes(primary.id))
       .map((family) =>
         family.parents.flatMap((id) => {
@@ -158,13 +211,8 @@ export function layoutTree(project: Project): Layout {
       if (node.level >= primary.level) node.x += offset
     })
   }
-  spaceTreeFamilies(
-    orderedRows,
-    data.families,
-    project.primary,
-    new Map([...visited].map(([id, pos]) => [id, pos.distance])),
-  )
-  const generationGaps = treeGenerationGaps([...rows.values()].flat(), data.families)
+  spaceTreeFamilies(orderedRows, families, project.primary, distances)
+  const generationGaps = treeGenerationGaps([...rows.values()].flat(), families)
   let y = 0
   for (let i = 0; i < orderedRows.length; i++) {
     const [, nodes] = orderedRows[i]
@@ -180,7 +228,8 @@ export function layoutTree(project: Project): Layout {
     n.x -= dx
     n.y -= dy
   })
-  const edges = routeTree(nodes, data.families)
+  const dottedEdges = new Set<string>()
+  const edges = routeTree(nodes, families, dottedEdges)
   // Wider routing lanes can extend above the first generation or around the
   // outside of a row. Include them in fitting and export bounds.
   const edgePoints = edges.flatMap((edge) => {
@@ -200,5 +249,13 @@ export function layoutTree(project: Project): Layout {
       ...edgePoints.map((p) => p.x + 20),
     ),
     maxY = Math.max(...nodes.map((n) => n.y + n.height + 80), ...edgePoints.map((p) => p.y + 20))
-  return { nodes, edges: [...new Set(edges)], minX, minY, width: maxX - minX, height: maxY - minY }
+  return {
+    nodes,
+    edges: [...new Set(edges)],
+    dottedEdges: [...dottedEdges],
+    minX,
+    minY,
+    width: maxX - minX,
+    height: maxY - minY,
+  }
 }

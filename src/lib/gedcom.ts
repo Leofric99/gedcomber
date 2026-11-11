@@ -1,4 +1,5 @@
 import type { Dataset, Family, GedNode, Person } from './types'
+import { relationshipEnded } from './relationships'
 const child = (n: GedNode | undefined, tag: string) => n?.children.find((c) => c.tag === tag)
 const value = (n: GedNode | undefined, tag: string) => child(n, tag)?.value ?? ''
 export function nodeText(n?: GedNode): string {
@@ -81,6 +82,7 @@ export function parseGedcom(text: string, filename = 'Family.ged'): Dataset {
     .filter((r) => r.tag === 'FAM' && r.xref)
     .map((r) => ({
       id: r.xref!,
+      ...(relationshipEnded(r) ? { ended: true } : {}),
       parents: r.children
         .filter((c) => ['HUSB', 'WIFE'].includes(c.tag))
         .map((c) => c.value)

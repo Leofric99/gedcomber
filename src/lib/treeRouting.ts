@@ -115,7 +115,7 @@ function intersection(a: Segment, b: Segment) {
   return [low, high] as const
 }
 
-export function routeTree(nodes: TreeNode[], families: Family[]) {
+export function routeTree(nodes: TreeNode[], families: Family[], dottedPaths = new Set<string>()) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const rowBottom = new Map<number, number>()
   for (const n of nodes)
@@ -131,9 +131,9 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
       ...nodes.flatMap((n) => [n.x - n.width / 2 - 28, n.x + n.width / 2 + 28]),
     ]),
   ]
-  const groups: { owner: number; paths: Segment[] }[] = []
-  const addGroup = (owner: number, paths: Segment[]) => {
-    groups.push({ owner, paths })
+  const groups: { owner: number; paths: Segment[]; dotted: boolean }[] = []
+  const addGroup = (owner: number, paths: Segment[], dotted = false) => {
+    groups.push({ owner, paths, dotted })
   }
   const hitsCard = ({ from, to }: Segment) => {
     const [left, right] = range(from.x, to.x),
@@ -179,11 +179,12 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
           { x: left.x + left.width / 2, y: left.y + 45 },
           { x: right.x - right.width / 2, y: left.y + 45 },
         ]),
+        !!family.ended,
       )
     return { parents, children, couple, owner }
   })
 
-  function connect(owner: number, anchors: Port[], lanes: number[]) {
+  function connect(owner: number, anchors: Port[], lanes: number[], dotted = false) {
     const occupied = groups.flatMap((group) => (group.owner === owner ? [] : group.paths))
     const offsets = [
       0,
@@ -225,15 +226,19 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
       const xs = ports as number[]
       const bus = busFor(xs, y)
       if (!isClear(bus)) continue
-      addGroup(owner, [
-        ...anchors.flatMap((anchor, i) =>
-          segments([
-            { x: xs[i], y: anchor.y },
-            { x: xs[i], y },
-          ]),
-        ),
-        ...bus,
-      ])
+      addGroup(
+        owner,
+        [
+          ...anchors.flatMap((anchor, i) =>
+            segments([
+              { x: xs[i], y: anchor.y },
+              { x: xs[i], y },
+            ]),
+          ),
+          ...bus,
+        ],
+        dotted,
+      )
       return
     }
 
@@ -286,7 +291,7 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
         best = [...legs, ...bus]
       }
     }
-    addGroup(owner, best)
+    addGroup(owner, best, dotted)
   }
 
   const bottomPort = (n: TreeNode): Port => ({
@@ -306,7 +311,12 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
       if (!couple && parents.length > 1) {
         const ports = parents.map(bottomPort)
         const y = Math.max(...ports.map((port) => port.gutter))
-        connect(owner, ports, [y, y + CONNECTOR_SPACING, y + 2 * CONNECTOR_SPACING])
+        connect(
+          owner,
+          ports,
+          [y, y + CONNECTOR_SPACING, y + 2 * CONNECTOR_SPACING],
+          !!families[owner].ended,
+        )
       }
       continue
     }
@@ -362,7 +372,7 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
   // If the relationships force a crossing, leave a gap in the later route.
   // A continuous stroke through the crossing would look like a family junction.
   const earlier: { owner: number; segment: Segment }[] = []
-  return groups.flatMap(({ owner, paths: group }) => {
+  return groups.flatMap(({ owner, paths: group, dotted }) => {
     const paths = group.flatMap((s) => {
       const axis = horizontal(s) ? 'x' : 'y'
       const [start, end] = range(s.from[axis], s.to[axis])
@@ -386,6 +396,7 @@ export function routeTree(nodes: TreeNode[], families: Family[]) {
       )
     })
     earlier.push(...group.map((segment) => ({ owner, segment })))
+    if (dotted) paths.forEach((path) => dottedPaths.add(path))
     return paths
   })
 }

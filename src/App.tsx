@@ -37,6 +37,7 @@ import {
 import { themes, projectTheme } from './lib/themes'
 import { demoDataset } from './lib/demo'
 import { layoutTree } from './lib/tree'
+import { expandAllTree } from './lib/expandTree'
 import { rasterSize, treePrintMetrics } from './lib/exportSizing'
 import { Modal, Field, FormatControls, Section, Toggle } from './components/Controls'
 import { Ornament, TreePrint } from './components/Artwork'
@@ -60,6 +61,10 @@ export default function App() {
     [chosen, setChosen] = useState(''),
     [exportOpen, setExportOpen] = useState(false),
     [help, setHelp] = useState(false)
+  const [expandAllOpen, setExpandAllOpen] = useState(false)
+  const [expandOtherSpouses, setExpandOtherSpouses] = useState(false)
+  const [expandCollateralChildren, setExpandCollateralChildren] = useState(false)
+  const [centerRequest, setCenterRequest] = useState(0)
   const [format, setFormat] = useState<'png' | 'jpeg' | 'svg' | 'pdf'>('png'),
     [scale, setScale] = useState(2),
     [exportTitle, setExportTitle] = useState(''),
@@ -294,6 +299,15 @@ export default function App() {
               </button>
             </nav>
             <div className="top-actions">
+              {mode === 'tree' && (
+                <button
+                  className="btn"
+                  disabled={!!busy || importing}
+                  onClick={() => setExpandAllOpen(true)}
+                >
+                  <GitBranch size={15} /> Expand / Collapse all
+                </button>
+              )}
               <button
                 className="icon-btn"
                 title="Start a new tree from a GEDCOM"
@@ -834,6 +848,7 @@ export default function App() {
                 onToggle={toggle}
                 onViewport={updateViewport}
                 onPrimary={() => selectPrimary()}
+                centerRequest={centerRequest}
               />
             ) : (
               <BookWorkspace project={project} onTree={() => setMode('tree')} />
@@ -854,6 +869,69 @@ export default function App() {
             />
           )}
         </div>
+      )}
+      {expandAllOpen && project && (
+        <Modal
+          title="Expand or collapse the tree"
+          eyebrow="TREE BRANCHES"
+          onClose={() => setExpandAllOpen(false)}
+        >
+          <p className="modal-intro">
+            Show the primary person’s ancestors, their siblings, and the primary person’s
+            descendants. Collapse all closes every branch and returns to the primary person. Both
+            actions centre the view on them.
+          </p>
+          <div className="notice">
+            This can create a very large tree and may take some time. Are you sure you want to
+            expand all these branches?
+          </div>
+          <div className="modal-options">
+            <Toggle
+              label="Include other spouses"
+              hint="Show additional spouses beside their partners, without opening those spouses’ other families."
+              checked={expandOtherSpouses}
+              onChange={setExpandOtherSpouses}
+            />
+            <Toggle
+              label="Include children of siblings"
+              hint="Also expand down through cousins, nieces, nephews, and their descendants."
+              checked={expandCollateralChildren}
+              onChange={setExpandCollateralChildren}
+            />
+          </div>
+          <div className="modal-footer">
+            <button className="btn" onClick={() => setExpandAllOpen(false)}>
+              Cancel
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                setProject({ ...project, expanded: {} })
+                setSelected(project.primary)
+                setCenterRequest((n) => n + 1)
+                setExpandAllOpen(false)
+              }}
+            >
+              Collapse all
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                setProject(
+                  expandAllTree(project, {
+                    otherSpouses: expandOtherSpouses,
+                    collateralChildren: expandCollateralChildren,
+                  }),
+                )
+                setSelected(project.primary)
+                setCenterRequest((n) => n + 1)
+                setExpandAllOpen(false)
+              }}
+            >
+              Yes, expand all
+            </button>
+          </div>
+        </Modal>
       )}
       {pickPrimary && dataForPicker && (
         <Modal
@@ -948,7 +1026,10 @@ export default function App() {
                 subtitle={exportSubtitle}
               />
               <span>
-                {exportLayout!.nodes.length} visible people · {theme.label} theme
+                {new Set(exportLayout!.nodes.map((node) => node.personId ?? node.id)).size} visible
+                people · {theme.label} theme
+                {exportLayout!.nodes.some((node) => node.personId) &&
+                  ` · ${exportLayout!.nodes.filter((node) => node.personId).length} linked repeat cards`}
               </span>
             </div>
             <div>

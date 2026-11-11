@@ -1201,6 +1201,12 @@ svg {
   gap: 15px;
   margin-top: 18px;
 }
+.modal-options {
+  padding: 0 28px;
+}
+.modal-options .toggle-row > span:first-child {
+  min-width: 0;
+}
 .modal-footer > span {
   font-size: 9px;
   color: #96a58a;
@@ -1814,6 +1820,9 @@ svg {
   }
   .modal-intro {
     padding: 0 20px 15px;
+  }
+  .modal-options {
+    padding: 0 20px;
   }
   .modal > .search-input {
     margin: 0 20px 12px;

@@ -10,9 +10,14 @@ const contains = (line: Line, p: Point) =>
 
 /** Round only isolated two-leg elbows. An endpoint touching another segment's
  * interior is a junction, even when that segment has not been split there. */
-export function roundedRelationshipPaths(paths: string[], radius = 8): string[] {
+export function roundedRelationshipPaths(
+  paths: string[],
+  radius = 8,
+  dottedPaths = new Set<string>(),
+): string[] {
   const lines: Line[] = [],
     unchanged: string[] = []
+  const originals: string[] = []
   for (const path of paths) {
     const match = /^M (-?[\d.e+]+) (-?[\d.e+]+) ([HV]) (-?[\d.e+]+)$/i.exec(path)
     if (!match) {
@@ -22,6 +27,7 @@ export function roundedRelationshipPaths(paths: string[], radius = 8): string[] 
     const a = { x: Number(match[1]), y: Number(match[2]) }
     const b = match[3] === 'H' ? { x: Number(match[4]), y: a.y } : { x: a.x, y: Number(match[4]) }
     lines.push({ a, b })
+    originals.push(path)
   }
   const endpoints = new Map<string, { point: Point; indices: number[] }>()
   lines.forEach((line, index) => {
@@ -35,6 +41,7 @@ export function roundedRelationshipPaths(paths: string[], radius = 8): string[] 
   const curves: string[] = []
   for (const { point, indices } of endpoints.values()) {
     if (indices.length !== 2) continue
+    if (indices.some((index) => dottedPaths.has(originals[index]))) continue
     const [first, second] = indices.map((index) => lines[index])
     if ((first.a.y === first.b.y) === (second.a.y === second.b.y)) continue
     if (lines.some((line, index) => !indices.includes(index) && contains(line, point))) continue

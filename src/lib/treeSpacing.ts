@@ -49,10 +49,14 @@ export function spaceTreeFamilies(
       const span =
         Math.max(x, ...children.map((node) => node.x)) -
         Math.min(x, ...children.map((node) => node.x))
-      return sum + Math.abs(x - anchor.x) + span / 4
+      // Penalise long runs disproportionately. With linear costs, moving an
+      // intermediate generation can merely transfer the same length from its
+      // child link to its parent link, so the whole chain gets stuck packed.
+      return sum + (x - anchor.x) ** 2 + span ** 2 / 4
     }, 0)
 
-  for (let pass = 0; pass < 6; pass++) {
+  let quietPasses = 0
+  for (let pass = 0; pass < 24; pass++) {
     let changed = false
     for (const { blocks } of pass % 2 ? groups : [...groups].reverse()) {
       const original = blocks.map((block) => midpoint(block))
@@ -64,12 +68,15 @@ export function spaceTreeFamilies(
           index === 0 ? 0 : offsets[index - 1] + (blocks[index - 1].length + block.length) * 165
         const shifts = links
           .flatMap(({ parents, anchor }) => {
-            if (parents.every((node) => block.includes(node))) return [anchor.x - midpoint(parents)]
-            if (block.includes(anchor)) return [midpoint(parents) - anchor.x]
+            if (pass % 3 !== 1 && parents.every((node) => block.includes(node)))
+              return [anchor.x - midpoint(parents)]
+            if (pass % 3 !== 0 && block.includes(anchor)) return [midpoint(parents) - anchor.x]
             return []
           })
           .sort((a, b) => a - b)
-        const shift = shifts.length ? shifts[Math.floor(shifts.length / 2)] : 0
+        const shift = shifts.length
+          ? shifts.reduce((sum, shift) => sum + shift, 0) / shifts.length
+          : 0
         // Keep the primary person and their parents aligned even when adjacent
         // independent groups need to move farther away to make room.
         const fixed =
@@ -115,7 +122,7 @@ export function spaceTreeFamilies(
       )
       // Compact placement is the default. Introduce gaps only for a meaningful
       // reduction in relationship lengths, not for incidental small offsets.
-      if (before - cost() >= 330) changed = true
+      if (before - cost() >= 330 ** 2 / 4) changed = true
       else
         blocks.forEach((block, index) =>
           block.forEach((node) => {
@@ -123,6 +130,7 @@ export function spaceTreeFamilies(
           }),
         )
     }
-    if (!changed) break
+    quietPasses = changed ? 0 : quietPasses + 1
+    if (quietPasses >= 3) break
   }
 }

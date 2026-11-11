@@ -53,6 +53,53 @@ function familyProject() {
 }
 
 describe('family units', () => {
+  it('shows additional spouses as opt-in leaves beside the main person, inside the sibling run', () => {
+    const project = familyProject()
+    project.dataset.families = [
+      { id: 'earlier-marriage', parents: ['@I5@', '@I4@'], children: ['@I1@'] },
+      { id: 'second-marriage', parents: ['@I2@', '@I4@'], children: [] },
+      { id: 'main-marriage', parents: ['@I2@', '@I3@'], children: ['@I0@'] },
+      { id: 'siblings', parents: [], children: ['@I2@', '@I6@', '@I7@'] },
+    ]
+    for (const expanded of [false, true]) {
+      project.expanded = { '@I0@': { parents: true }, '@I2@': { siblings: expanded } }
+      expect(layoutTree(project).nodes.some((node) => node.id === '@I4@')).toBe(false)
+      project.expanded['@I2@'].partners = true
+      // Previous expansion settings on the secondary spouse must not reopen
+      // their other marriage or bring in its children.
+      project.expanded['@I4@'] = { partners: true, children: true, parents: true }
+      const layout = layoutTree(project)
+      const row = layout.nodes.filter((node) => node.level === -1).sort((a, b) => a.x - b.x)
+      const index = (id: string) => row.findIndex((node) => node.id === id)
+      for (const [a, b] of [
+        ['@I2@', '@I3@'],
+        ['@I2@', '@I4@'],
+      ])
+        expect(Math.abs(index(a) - index(b))).toBe(1)
+      expect(row.some((node) => node.id === '@I5@' || node.id === '@I1@')).toBe(false)
+      expect(row.find((node) => node.id === '@I4@')!.spouseOnly).toBe('@I2@')
+      expect(Math.sign(index('@I4@') - index('@I2@'))).toBe(
+        -Math.sign(index('@I3@') - index('@I2@')),
+      )
+      const x = (id: string) => layout.nodes.find((node) => node.id === id)!.x
+      expect((x('@I2@') + x('@I3@')) / 2).toBeCloseTo(x('@I0@'))
+      if (expanded)
+        for (const sibling of ['@I6@', '@I7@', '@I4@'])
+          expect(Math.sign(index(sibling) - index('@I2@'))).toBe(
+            Math.sign(index('@I2@') - index('@I3@')),
+          )
+      const html = renderToStaticMarkup(
+        <TreeNodes project={project} layout={layout} theme={projectTheme(project)} interactive />,
+      )
+      expect(html).toContain('Hide partners of Harold Hodges')
+      expect(html).not.toMatch(
+        /(?:Show|Hide) (?:parents|siblings[^\"]*|partners|children) of Robert White/,
+      )
+      project.expanded['@I2@'].partners = false
+      expect(layoutTree(project).nodes.some((node) => node.id === '@I4@')).toBe(false)
+    }
+  })
+
   it('shows the child arrow on the closest partner, retaining both for separate children', () => {
     const project = familyProject()
     project.dataset.families = [

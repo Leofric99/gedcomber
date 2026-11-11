@@ -20,13 +20,24 @@ export function orderTreeRows(
   const priority = new Map(nodes.map((node, i) => [node, i]))
   const closest = (a: TreeNode, b: TreeNode) =>
     distance.get(a.id)! - distance.get(b.id)! || priority.get(a)! - priority.get(b)!
+  const partnerLinks = new Map(nodes.map((node) => [node, new Set<TreeNode>()]))
+  for (const { parents } of relations)
+    for (const parent of parents)
+      for (const partner of parents)
+        if (partner !== parent && partner.level === parent.level)
+          partnerLinks.get(parent)!.add(partner)
   const partnerOf = (anchor: TreeNode) =>
     relations
-      .find(
+      .filter(
         ({ parents }) =>
           parents.includes(anchor) &&
           parents.some((node) => node !== anchor && node.level === anchor.level),
       )
+      .sort(
+        (a, b) =>
+          Math.min(...a.children.map((node) => distance.get(node.id) ?? Infinity)) -
+          Math.min(...b.children.map((node) => distance.get(node.id) ?? Infinity)),
+      )[0]
       ?.parents.find((node) => node !== anchor && node.level === anchor.level)
   const siblingRuns = rows.flatMap(([level]) =>
     relations.flatMap(({ children }) => {
@@ -49,12 +60,14 @@ export function orderTreeRows(
         return (
           (ordered[left] === anchor || ordered[right] === anchor) &&
           (!partner ||
-            siblings.every(
-              (sibling) =>
-                sibling === anchor ||
-                Math.sign(ordered.indexOf(sibling) - ordered.indexOf(anchor)) ===
-                  Math.sign(ordered.indexOf(anchor) - ordered.indexOf(partner)),
-            )) &&
+            [...siblings, ...partnerLinks.get(anchor)!]
+              .filter((node) => node !== partner)
+              .every(
+                (sibling) =>
+                  sibling === anchor ||
+                  Math.sign(ordered.indexOf(sibling) - ordered.indexOf(anchor)) ===
+                    Math.sign(ordered.indexOf(anchor) - ordered.indexOf(partner)),
+              )) &&
           ordered.slice(left, right + 1).every((node) => allowed.has(node))
         )
       })
@@ -72,6 +85,29 @@ export function orderTreeRows(
       const joined = members.flat().sort((a, b) => a.x - b.x || closest(a, b))
       units = units.filter((unit) => !members.includes(unit))
       units.push(joined)
+    }
+    // A remarriage chain is not an interchangeable block. Preserve every
+    // marriage adjacency inside it (e.g. Frances–Harold–Shirley–John), so a
+    // secondary spouse cannot be connected across the main spouse's card or
+    // the vertical stem leading to their children.
+    for (let index = 0; index < units.length; index++) {
+      const unit = units[index]
+      if (unit.length < 3 || unit.some((node) => partnerLinks.get(node)!.size > 2)) continue
+      const ends = unit.filter((node) => partnerLinks.get(node)!.size === 1)
+      if (ends.length !== 2) continue
+      const path = [ends[0]]
+      while (path.length < unit.length) {
+        const next = [...partnerLinks.get(path[path.length - 1])!].find(
+          (node) => unit.includes(node) && !path.includes(node),
+        )
+        if (!next) break
+        path.push(next)
+      }
+      if (path.length !== unit.length) continue
+      const displacement = (order: TreeNode[]) =>
+        order.reduce((sum, node, i) => sum + (i - unit.indexOf(node)) ** 2, 0)
+      const reverse = [...path].reverse()
+      units[index] = displacement(path) <= displacement(reverse) ? path : reverse
     }
     units.sort((a, b) => Math.min(...a.map((n) => n.x)) - Math.min(...b.map((n) => n.x)))
     let groups: Branch[] = units.map((unit) => [unit])
@@ -196,6 +232,24 @@ export function orderTreeRows(
     anchored.forEach(({ index }, i) => {
       groups[index] = sorted[i].group
     })
+    // Keep secondary marriages on the same open side as the main partner's
+    // siblings. Their connector must never span across the main couple's
+    // child stem, even when the sibling run occupies several spouse units.
+    for (const run of siblingRuns.filter((run) => run.level === level && run.partner)) {
+      const own = groups.find((group) => group.flat().includes(run.anchor))!
+      const members = own.flat()
+      const toRight = members.indexOf(run.anchor) > members.indexOf(run.partner!)
+      for (const extra of partnerLinks.get(run.anchor)!) {
+        const other = groups.find((group) => group.flat().includes(extra))!
+        if (other === own || extra === run.partner) continue
+        const correct = toRight
+          ? groups.indexOf(other) > groups.indexOf(own)
+          : groups.indexOf(other) < groups.indexOf(own)
+        if (correct) continue
+        groups.splice(groups.indexOf(other), 1)
+        groups.splice(groups.indexOf(own) + (toRight ? 1 : 0), 0, other)
+      }
+    }
     place()
   }
   const links = relations.filter(({ parents, children }) => parents.length && children.length)
