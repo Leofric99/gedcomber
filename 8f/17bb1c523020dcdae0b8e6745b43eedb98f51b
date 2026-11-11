@@ -1,0 +1,25 @@
+src/components/Artwork.tsx
+  s_bcda9e72c21a68::t_b5500573822263 176-179
+src/lib/tree.test.tsx
+  s_bcda9e72c21a68::t_5e23ba5725f940 10,55-180,198-204,319-323,383-426
+src/lib/tree.ts
+  s_bcda9e72c21a68::t_d9375335cfc0aa 4,79-80,103-107,133-137
+src/lib/treeOrdering.ts
+  s_bcda9e72c21a68::t_7a536e326198bc 1-275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8f17bb1c523020dcdae0b8e6745b43eedb98f51b",
+  "prompts": {},
+  "sessions": {
+    "s_bcda9e72c21a68": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ca92-b50b-7092-8977-1b61b0b04792",
+        "model": "unknown"
+      },
+      "human_author": "chrhodge <chrhodge@cisco.com>"
+    }
+  }
+}
