@@ -173,7 +173,10 @@ export function TreeNodes({
         const partner = rel?.partners
           .map((id) => nodesById.get(id))
           .find((p) => p?.level === n.level)
-        const siblingsRight = partner !== undefined && partner.x < n.x
+        const sibling = rel?.siblings
+          .map((id) => nodesById.get(id))
+          .find((p) => p?.level === n.level)
+        const siblingsRight = sibling ? sibling.x > n.x : partner !== undefined && partner.x < n.x
         const controls: {
           group: keyof Expansion
           x: number

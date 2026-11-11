@@ -1,6 +1,7 @@
 import type { Dataset, Display, Expansion, Project } from './types'
 import { personDetails, personName } from './format'
 import { routeTree } from './treeRouting'
+import { orderTreeRows } from './treeOrdering'
 export function relatives(data: Dataset, id: string): Record<keyof Expansion, string[]> {
   const parents: string[] = [],
     siblings: string[] = [],
@@ -75,8 +76,8 @@ export function cardText(data: Dataset, id: string, display: Display) {
 }
 export function layoutTree(project: Project): Layout {
   const data = project.dataset
-  const visited = new Map<string, { level: number; preferred: number }>([
-    [project.primary, { level: 0, preferred: 0 }],
+  const visited = new Map<string, { level: number; preferred: number; distance: number }>([
+    [project.primary, { level: 0, preferred: 0, distance: 0 }],
   ])
   const queue = [project.primary]
   for (let i = 0; i < queue.length; i++) {
@@ -99,7 +100,11 @@ export function layoutTree(project: Project): Layout {
             : group === 'partners'
               ? j + 1
               : j - (rel[group].length - 1) / 2
-        visited.set(other, { level, preferred: pos.preferred + offset * 330 })
+        visited.set(other, {
+          level,
+          preferred: pos.preferred + offset * 330,
+          distance: pos.distance + 1,
+        })
         queue.push(other)
       })
     }
@@ -125,91 +130,11 @@ export function layoutTree(project: Project): Layout {
     rows.set(pos.level, row)
   }
   const orderedRows = [...rows].sort(([a], [b]) => a - b)
-  const byId = new Map([...rows.values()].flat().map((node) => [node.id, node]))
-  const childrenByParent = new Map<string, Set<TreeNode>>()
-  for (const family of data.families) {
-    for (const parent of family.parents) {
-      if (!byId.has(parent)) continue
-      const children = childrenByParent.get(parent) ?? new Set<TreeNode>()
-      for (const id of family.children) {
-        const child = byId.get(id)
-        if (child) children.add(child)
-      }
-      childrenByParent.set(parent, children)
-    }
-  }
-  for (const [level, nodes] of [...orderedRows].reverse()) {
-    // Lay out connected spouse units as blocks, so sibling insertion can never
-    // put an unrelated card across a marriage connector.
-    const pending = new Set(nodes)
-    const blocks: TreeNode[][] = []
-    while (pending.size) {
-      const first = pending.values().next().value!
-      pending.delete(first)
-      const block = [first]
-      for (let i = 0; i < block.length; i++) {
-        const partners = relatives(data, block[i].id).partners
-        for (const n of pending) {
-          if (partners.includes(n.id)) {
-            pending.delete(n)
-            block.push(n)
-          }
-        }
-      }
-      block.sort((a, b) => a.x - b.x || a.id.localeCompare(b.id))
-      blocks.push(block)
-    }
-    blocks.sort((a, b) => Math.min(...a.map((n) => n.x)) - Math.min(...b.map((n) => n.x)))
-    nodes.splice(0, nodes.length, ...blocks.flat())
-    const preferredCenter = nodes.reduce((sum, n) => sum + n.x, 0) / nodes.length
-    nodes.forEach((n, i) => {
-      n.x = i === 0 ? n.x : Math.max(n.x, nodes[i - 1].x + 330)
-    })
-    const actualCenter = nodes.reduce((sum, n) => sum + n.x, 0) / nodes.length
-    nodes.forEach((n) => (n.x += preferredCenter - actualCenter))
-    // Use the child row's final order. The discovery order can invert two
-    // parent couples even when each couple is kept together.
-    const anchored = blocks.flatMap((block, index) => {
-      const children = new Set(block.flatMap((n) => [...(childrenByParent.get(n.id) ?? [])]))
-      const nextRow = [...children].filter((child) => child.level === level + 1)
-      if (!nextRow.length) return []
-      const center = nextRow.reduce((sum, child) => sum + child.x, 0) / nextRow.length
-      return [{ block, index, center }]
-    })
-    const positions = nodes.map((node) => node.x)
-    const byChildPosition = [...anchored].sort((a, b) => a.center - b.center)
-    anchored.forEach(({ index }, i) => (blocks[index] = byChildPosition[i].block))
-
-    // Insert siblings at the anchor's open side, shifting the other blocks
-    // along the row. Keep spouses of those siblings beyond the sibling run.
-    for (const node of nodes) {
-      if (!project.expanded[node.id]?.siblings) continue
-      const rel = relatives(data, node.id)
-      const siblingIds = new Set(rel.siblings)
-      const own = blocks.find((block) => block.includes(node))!
-      const others = blocks.filter(
-        (block) => block !== own && block.some((member) => siblingIds.has(member.id)),
-      )
-      if (!others.length) continue
-      const partner = rel.partners.map((id) => byId.get(id)).find((n) => n && own.includes(n))
-      const toRight = partner !== undefined && own.indexOf(partner) < own.indexOf(node)
-      const members = others.flat()
-      const siblings = members.filter((member) => siblingIds.has(member.id))
-      const companions = [...others]
-        .reverse()
-        .flat()
-        .filter((member) => !siblingIds.has(member.id))
-      const at = own.indexOf(node)
-      const joined = toRight
-        ? [...own.slice(0, at + 1), ...siblings, ...companions, ...own.slice(at + 1)]
-        : [...own.slice(0, at), ...companions, ...siblings, ...own.slice(at)]
-      blocks[blocks.indexOf(own)] = joined
-      for (const block of others) blocks.splice(blocks.indexOf(block), 1)
-    }
-
-    nodes.splice(0, nodes.length, ...blocks.flat())
-    nodes.forEach((node, i) => (node.x = positions[i]))
-  }
+  orderTreeRows(
+    orderedRows,
+    data.families,
+    new Map([...visited].map(([id, pos]) => [id, pos.distance])),
+  )
   let y = 0
   for (const [, nodes] of orderedRows) {
     nodes.forEach((node) => (node.y = y))

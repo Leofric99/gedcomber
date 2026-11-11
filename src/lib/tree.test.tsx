@@ -7,6 +7,7 @@ import { routeTree } from './treeRouting'
 import { projectTheme } from './themes'
 import { TreeNodes } from '../components/Artwork'
 import { personDetails } from './format'
+import { orderTreeRows } from './treeOrdering'
 
 function familyProject() {
   const names = [
@@ -51,6 +52,132 @@ function familyProject() {
 }
 
 describe('family units', () => {
+  it('keeps Eleanor and Robin consecutive without Lee’s siblings between them', () => {
+    const names = [
+      'Lee',
+      'Eleanor',
+      'Sharon',
+      'Andrew',
+      'Clark',
+      'Robin',
+      'Colin',
+      'Margaret',
+      'Allan',
+      'Susan',
+    ]
+    const records = names.map((name, i) => `0 @I${i}@ INDI\n1 NAME ${name} /Example/`).join('\n')
+    const dataset = parseGedcom(`0 HEAD\n${records}\n0 TRLR`)
+    const families = [
+      { id: 'lee-parents', parents: ['@I6@', '@I7@'], children: ['@I0@', '@I2@', '@I4@'] },
+      { id: 'eleanor-parents', parents: ['@I8@', '@I9@'], children: ['@I1@', '@I5@'] },
+      { id: 'couple', parents: ['@I0@', '@I1@'], children: [] },
+      { id: 'sharon-couple', parents: ['@I2@', '@I3@'], children: [] },
+    ]
+    // Family record order and the person used to open a branch must not change
+    // either sibling group's adjacency guarantees.
+    const permutations = (items: typeof families): (typeof families)[] =>
+      items.length < 2
+        ? [items]
+        : items.flatMap((item, index) =>
+            permutations(items.filter((_, i) => i !== index)).map((rest) => [item, ...rest]),
+          )
+    for (const order of permutations(families)) {
+      dataset.families = order
+      for (const primary of ['@I0@', '@I1@']) {
+        const project = newProject(dataset, primary)
+        project.expanded = {
+          '@I0@': { parents: true, siblings: true },
+          '@I1@': { parents: true, siblings: true },
+          '@I2@': { siblings: true },
+        }
+        const row = layoutTree(project)
+          .nodes.filter((n) => n.level === 0)
+          .sort((a, b) => a.x - b.x)
+        const ids = row.map((n) => n.id)
+        const assertSiblingRun = (siblings: string[], spouses: string[], anchor: string) => {
+          const positions = siblings.map((id) => ids.indexOf(id))
+          const low = Math.min(...positions),
+            high = Math.max(...positions)
+          expect([low, high]).toContain(ids.indexOf(anchor))
+          expect(
+            ids.slice(low, high + 1).every((id) => [...siblings, ...spouses].includes(id)),
+          ).toBe(true)
+        }
+        assertSiblingRun(['@I0@', '@I2@', '@I4@'], ['@I1@', '@I3@'], '@I0@')
+        assertSiblingRun(['@I1@', '@I5@'], ['@I0@'], '@I1@')
+        expect(Math.abs(ids.indexOf('@I0@') - ids.indexOf('@I1@'))).toBe(1)
+        expect(Math.abs(ids.indexOf('@I2@') - ids.indexOf('@I3@'))).toBe(1)
+      }
+    }
+  })
+
+  it('anchors a sibling chain at the primary person even when siblings are revealed through parents', () => {
+    const project = familyProject()
+    project.dataset.families = [
+      { id: 'siblings', parents: ['@I6@', '@I7@'], children: ['@I2@', '@I0@', '@I4@'] },
+      { id: 'main', parents: ['@I0@', '@I1@'], children: [] },
+      { id: 'first', parents: ['@I2@', '@I3@'], children: [] },
+      { id: 'last', parents: ['@I4@', '@I5@'], children: [] },
+    ]
+    project.expanded = { '@I0@': { parents: true }, '@I6@': { children: true } }
+    for (const expanded of [false, true]) {
+      project.expanded['@I2@'] = { siblings: expanded }
+      project.expanded['@I4@'] = { siblings: expanded }
+      const row = layoutTree(project)
+        .nodes.filter((node) => node.level === 0)
+        .sort((a, b) => a.x - b.x)
+      const index = (id: string) => row.findIndex((node) => node.id === id)
+      const direction = Math.sign(index('@I2@') - index('@I0@'))
+      expect(Math.sign(index('@I4@') - index('@I0@'))).toBe(direction)
+      for (const [a, b] of [
+        ['@I0@', '@I1@'],
+        ['@I2@', '@I3@'],
+        ['@I4@', '@I5@'],
+      ])
+        expect(Math.abs(index(a) - index(b))).toBe(1)
+    }
+  })
+
+  it('turns a whole sibling branch when its two ancestor connections would cross', () => {
+    const node = (id: string, x: number, level: number) => ({
+      id,
+      x,
+      level,
+      y: level * 220,
+      width: 250,
+      height: 100,
+      name: [],
+      details: [],
+    })
+    const top = [node('grandparent', 0, -2)]
+    const middle = [node('a-parent', -330, -1), node('b-parent', 330, -1)]
+    const bottom = [node('a', -330, 0), node('b', 330, 0)]
+    const families = [
+      { id: 'parent-siblings', parents: ['grandparent'], children: ['a-parent', 'b-parent'] },
+      { id: 'a-family', parents: ['a-parent'], children: ['a'] },
+      { id: 'b-family', parents: ['b-parent'], children: ['b'] },
+    ]
+    const rows: [number, typeof top][] = [
+      [-2, top],
+      [-1, middle],
+      [0, bottom],
+    ]
+    orderTreeRows(
+      rows,
+      families,
+      new Map([
+        ['a', 0],
+        ['b', 3],
+        ['a-parent', 1],
+        ['b-parent', 2],
+        ['grandparent', 2],
+      ]),
+    )
+    const x = (id: string) => rows.flatMap(([, row]) => row).find((node) => node.id === id)!.x
+    // Test the placement itself, before the router can hide crossings with gaps.
+    expect((x('a-parent') - x('b-parent')) * (x('a') - x('b'))).toBeGreaterThan(0)
+  })
+
   it('places siblings together on the right when the spouse is on the left', () => {
     const project = familyProject()
     project.expanded = {
@@ -68,8 +195,13 @@ describe('family units', () => {
     const row = layout.nodes.filter((node) => node.level === -1).map((node) => node.id)
     const emily = row.indexOf('@I5@')
     expect(row[emily - 1]).toBe('@I4@')
-    expect(row.slice(emily + 1, emily + 3).sort()).toEqual(['@I6@', 'extra'])
-    expect(row[emily + 3]).toBe('@I7@')
+    expect(
+      row
+        .slice(emily + 1)
+        .filter((id) => id !== '@I7@')
+        .sort(),
+    ).toEqual(['@I6@', 'extra'])
+    expect(Math.abs(row.indexOf('@I6@') - row.indexOf('@I7@'))).toBe(1)
     const html = renderToStaticMarkup(
       <TreeNodes project={project} layout={layout} theme={projectTheme(project)} interactive />,
     )
@@ -184,7 +316,11 @@ describe('family units', () => {
         Math.abs(row.findIndex((n) => n.id === pair[0]) - row.findIndex((n) => n.id === pair[1])),
       ).toBe(1)
     }
-    expect(row.findIndex((n) => n.id === '@I6@') + 1).toBe(row.findIndex((n) => n.id === '@I4@'))
+    // Doris and Robert are siblings. Doris's spouse may sit between them, but
+    // no unrelated branch may split their sibling run.
+    const siblingGap = row.findIndex((n) => n.id === '@I4@') - row.findIndex((n) => n.id === '@I6@')
+    expect(siblingGap).toBeGreaterThan(0)
+    expect(siblingGap).toBeLessThanOrEqual(2)
     const harold = row.find((n) => n.id === '@I2@')!,
       beryl = row.find((n) => n.id === '@I3@')!
     const doris = row.find((n) => n.id === '@I6@')!
@@ -243,6 +379,50 @@ describe('family units', () => {
             2
         )
           throw new Error(`Overlapping vertical connectors at ${verticalSegments[i].x1}`)
+  })
+  it('keeps every married sibling beside their spouse without splitting the sibling run', () => {
+    const records = ['Ada', 'Bea', 'Cy', 'Alex', 'Ben', 'Cara']
+      .map((name, i) => `0 @I${i}@ INDI\n1 NAME ${name} /Example/`)
+      .join('\n')
+    const project = newProject(
+      parseGedcom(`0 HEAD
+${records}
+0 @FS@ FAM
+1 CHIL @I0@
+1 CHIL @I1@
+1 CHIL @I2@
+0 @FA@ FAM
+1 HUSB @I0@
+1 WIFE @I3@
+0 @FB@ FAM
+1 HUSB @I1@
+1 WIFE @I4@
+0 @FC@ FAM
+1 HUSB @I2@
+1 WIFE @I5@
+0 TRLR`),
+      '@I0@',
+    )
+    project.expanded['@I0@'] = { siblings: true }
+
+    const row = layoutTree(project).nodes.sort((a, b) => a.x - b.x)
+    for (const [sibling, spouse] of [
+      ['@I0@', '@I3@'],
+      ['@I1@', '@I4@'],
+      ['@I2@', '@I5@'],
+    ]) {
+      expect(
+        Math.abs(
+          row.findIndex((node) => node.id === sibling) -
+            row.findIndex((node) => node.id === spouse),
+        ),
+      ).toBe(1)
+    }
+    const siblingPositions = ['@I0@', '@I1@', '@I2@']
+      .map((id) => row.findIndex((node) => node.id === id))
+      .sort((a, b) => a - b)
+    expect(siblingPositions[1] - siblingPositions[0]).toBe(2)
+    expect(siblingPositions[2] - siblingPositions[1]).toBe(2)
   })
   it('uses symbols for birth and death details', () => {
     const project = familyProject()
