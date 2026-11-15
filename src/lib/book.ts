@@ -13,7 +13,7 @@ export type BookPage = {
   storyRegions?: StoryRegion[]
   person: Person
   continuation: number
-  lines: { text: string; y: number; x?: number }[]
+  lines: { text: string; y: number; x?: number; start?: number; end?: number }[]
   nameLines: string[]
   facts: { field: BookFactField; label: string; lines: string[]; y: number }[]
   width: number
@@ -193,6 +193,7 @@ export function bookPages(project: Project): BookPage[] {
       }
     }
     const paragraphs = story.split(/\n/)
+    let storyOffset = 0
     let prepared: BookPage | undefined
     let regions: StoryRegion[] = [],
       regionIndex = 0
@@ -270,7 +271,14 @@ export function bookPages(project: Project): BookPage[] {
           continue
         }
         const text = wrapped[0]
-        page.lines.push({ text, x: region.x, y: cursor })
+        while (storyOffset < story.length && /\s/.test(story[storyOffset])) storyOffset++
+        const start = storyOffset
+        for (const character of text) {
+          if (/\s/.test(character)) {
+            while (storyOffset < story.length && /\s/.test(story[storyOffset])) storyOffset++
+          } else if (story[storyOffset] === character) storyOffset++
+        }
+        page.lines.push({ text, x: region.x, y: cursor, start, end: storyOffset })
         remaining = remaining.slice(text.length).trimStart()
         paragraphLines++
         cursor += leading

@@ -3,10 +3,12 @@ import { Pencil, Upload, Trash2, X } from 'lucide-react'
 import type { Person, Project } from '../lib/types'
 import type { BookFactField, BookPage } from '../lib/book'
 import { photoData } from '../lib/storage'
+import { projectTheme } from '../lib/themes'
+import { plainStory } from '../lib/format'
 import { Field } from './Controls'
 import { PhotoFramer } from './PhotoFramer'
 
-type TextField = BookFactField | 'story' | 'name' | 'title'
+type TextField = BookFactField | 'name' | 'title'
 type Edit = { field: TextField | 'photo'; label: string; y: number }
 
 // This HTML layer belongs only to the workspace. Export uses BookArtwork directly.
@@ -30,9 +32,19 @@ export function BookPageEditor({
     [loading, setLoading] = useState(false)
   const form = useRef<HTMLFormElement>(null),
     photoInput = useRef<HTMLInputElement>(null),
+    storyOriginal = useRef(''),
+    [paperWidth, setPaperWidth] = useState(page.width),
     opener = useRef<HTMLButtonElement | null>(null),
     photoRequest = useRef(0)
   const p = page.person
+  useEffect(() => {
+    const paper = document.querySelector('.book-paper')
+    if (!paper) return
+    const observer = new ResizeObserver(() => setPaperWidth(paper.getBoundingClientRect().width))
+    observer.observe(paper)
+    setPaperWidth(paper.getBoundingClientRect().width)
+    return () => observer.disconnect()
+  }, [])
   useEffect(
     () => () => {
       photoRequest.current++
@@ -81,6 +93,10 @@ export function BookPageEditor({
       <Pencil size={11} aria-hidden="true" />
     </button>
   )
+  const story = plainStory(p.story).trim()
+  const storyRegions = page.storyRegions?.length
+    ? page.storyRegions
+    : [{ x: 52, y: page.storyTop - project.book.fontSize, width: page.width - 104, height: page.height - page.storyTop - 70 }]
   return (
     <div className="book-edit-layer">
       {pencil('title', 'Book title', page.width - 30, 32)}
@@ -94,14 +110,46 @@ export function BookPageEditor({
           page.photo ? page.photo.y + page.photo.height - 8 : 85,
         )}
       {page.facts.map((fact) => pencil(fact.field, fact.label, 28, fact.y - 5))}
-      {project.book.story &&
-        (page.lines.length > 0 || page.continuation === page.totalForPerson - 1) &&
-        pencil(
-          'story',
-          'Life story',
-          (page.lines[0]?.x ?? 52) - 24,
-          Math.min(page.lines[0]?.y ?? page.storyTop, page.height - 85) - 6,
-        )}
+      {project.book.story && storyRegions.map((region, i) => {
+        const lines = page.lines.filter((line) =>
+          (line.x ?? 52) === region.x && line.y >= region.y && line.y <= region.y + region.height,
+        )
+        if (!lines.length && (story || i > 0 || page.continuation !== page.totalForPerson - 1)) return null
+        const start = lines[0]?.start ?? 0
+        const end = lines.at(-1)?.end ?? 0
+        const original = story.slice(start, end)
+        return (
+          <div
+            key={i}
+            className="book-story-content"
+            contentEditable
+            suppressContentEditableWarning
+            role="textbox"
+            aria-label="Life story on this page"
+            aria-multiline="true"
+            data-placeholder="Click here to write the life story"
+            onFocus={(event) => { storyOriginal.current = event.currentTarget.innerText }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.currentTarget.innerText = storyOriginal.current
+                event.currentTarget.blur()
+              }
+            }}
+            onBlur={(event) => {
+              const edited = event.currentTarget.innerText.replace(/\r/g, '')
+              if (edited !== original) onPersonChange({ story: story.slice(0, start) + edited + story.slice(end) })
+            }}
+            style={{
+              left: `${(region.x / page.width) * 100}%`,
+              top: `${(region.y / page.height) * 100}%`,
+              width: `${(region.width / page.width) * 100}%`,
+              height: `${(region.height / page.height) * 100}%`,
+              fontSize: `${project.book.fontSize * paperWidth / page.width}px`,
+              color: projectTheme(project).ink,
+            }}
+          >{original}</div>
+        )
+      })}
       {edit && (
         <form
           ref={form}
@@ -231,9 +279,9 @@ export function BookPageEditor({
                 ))
               ) : (
                 <Field label={edit.label}>
-                  {edit.field === 'story' || edit.field === 'notes' ? (
+                  {edit.field === 'notes' ? (
                     <textarea
-                      rows={edit.field === 'story' ? 9 : 4}
+                      rows={4}
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
                     />

@@ -390,8 +390,8 @@ export function BookWorkspace({
             </button>
           </div>
           <p className="book-note">
-            Use the pencils to edit this page. Editing controls are hidden in the exported PDF. Long
-            stories continue automatically.
+            Click the life story to type directly in the page. Use the pencils for other details.
+            Long stories continue automatically.
           </p>
         </>
       ) : (

@@ -1508,6 +1508,25 @@ svg {
   border-color: #647b56;
   z-index: 1;
 }
+.book-paper > svg .book-story-print {
+  visibility: hidden;
+}
+.book-story-content {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 0;
+  outline: none;
+  font-family: Georgia, serif;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow: hidden;
+  cursor: text;
+  pointer-events: auto;
+}
+.book-story-content:empty::before {
+  content: attr(data-placeholder);
+  color: #647b56;
+}
 .book-inline-editor {
   position: absolute;
   left: 5%;
@@ -1552,6 +1571,9 @@ svg {
 @media print {
   .book-edit-layer {
     display: none !important;
+  }
+  .book-paper > svg .book-story-print {
+    visibility: visible;
   }
 }
 .book-pagination {

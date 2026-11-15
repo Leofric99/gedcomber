@@ -3,7 +3,7 @@ import { ImagePlus, Shuffle, ArrowLeftRight, X } from 'lucide-react'
 import type { BookPage } from '../lib/book'
 import { type BookPageLayout, type Project } from '../lib/types'
 import { personName } from '../lib/format'
-import { editorialArrangement, editorialArrangements } from '../lib/bookPhoto'
+import { editorialArrangement, editorialArrangements, oneImageArrangements } from '../lib/bookPhoto'
 import { photoData } from '../lib/storage'
 
 export function PageLayoutControls({
@@ -214,10 +214,21 @@ export function PageLayoutControls({
         onClick={() =>
           set({
             layout:
-              editorialArrangements[
-                (editorialArrangements.indexOf(editorialArrangement(config.layout)) + 1) %
-                  (count === 1 ? 3 : editorialArrangements.length)
-              ],
+              count === 1
+                ? oneImageArrangements[
+                    (Math.max(
+                      0,
+                      oneImageArrangements.indexOf(
+                        config.layout as (typeof oneImageArrangements)[number],
+                      ),
+                    ) +
+                      1) %
+                      oneImageArrangements.length
+                  ]
+                : editorialArrangements[
+                    (editorialArrangements.indexOf(editorialArrangement(config.layout)) + 1) %
+                      editorialArrangements.length
+                  ],
           })
         }
       >

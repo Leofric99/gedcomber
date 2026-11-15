@@ -311,6 +311,13 @@ export default function App() {
                 </button>
               )}
               <button
+                className="btn"
+                title="Import a Gedcomber project backup"
+                onClick={() => backupRef.current?.click()}
+              >
+                <FolderOpen size={15} /> Import project
+              </button>
+              <button
                 className="icon-btn"
                 title="Start a new tree from a GEDCOM"
                 aria-label="Start a new tree from a GEDCOM"

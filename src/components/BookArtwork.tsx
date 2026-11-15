@@ -214,7 +214,7 @@ export function BookArtwork({
             stroke={theme.accent}
             strokeWidth="1"
           />
-          <text fill={theme.ink} fontFamily={storyFont} fontSize={b.fontSize}>
+          <text className="book-story-print" fill={theme.ink} fontFamily={storyFont} fontSize={b.fontSize}>
             {page.lines.map((line, i) => (
               <tspan key={i} x={line.x ?? m} y={line.y}>
                 {line.text}

@@ -14,6 +14,13 @@ export const editorialArrangements = [
   'feature',
   'alternating',
 ] as const
+export const oneImageArrangements = [
+  ...editorialArrangements.slice(0, 3),
+  'top-left',
+  'top-right',
+  'bottom-left',
+  'bottom-right',
+] as const
 
 export function editorialArrangement(layout: string): (typeof editorialArrangements)[number] {
   if (editorialArrangements.includes(layout as (typeof editorialArrangements)[number]))
@@ -66,6 +73,36 @@ export function composeBookBody(
     })
   }
   let style = editorialArrangement(arrangement)
+  if (
+    photos.length === 1 &&
+    ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(arrangement)
+  ) {
+    const corner = arrangement as 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+    const photoWidth = width * 0.36
+    const photoHeight = Math.min(height * 0.3, Math.max(96, width * 0.25))
+    const left = corner.endsWith('left')
+    const top = corner.startsWith('top')
+    const photoX = left ? x : x + width - photoWidth
+    const photoY = top ? y : y + height - photoHeight
+    figure(0, { x: photoX, y: photoY, width: photoWidth, height: photoHeight })
+    const sideWidth = width - photoWidth - gap
+    const regions = top
+      ? [
+          { x: left ? photoX + photoWidth + gap : x, y, width: sideWidth, height: photoHeight },
+          { x, y: y + photoHeight + gap, width, height: Math.max(0, height - photoHeight - gap) },
+        ]
+      : [
+          { x, y, width, height: Math.max(0, height - photoHeight - gap) },
+          { x: left ? photoX + photoWidth + gap : x, y: photoY, width: sideWidth, height: photoHeight },
+        ]
+    const labels = {
+      'top-left': 'Top left photograph',
+      'top-right': 'Top right photograph',
+      'bottom-left': 'Bottom left photograph',
+      'bottom-right': 'Bottom right photograph',
+    }
+    return { pictures, regions, composition: labels[corner] }
+  }
   // Narrow pages benefit from a generous photograph above the story instead of a thin text rail.
   if (width < 400 && style !== 'feature') style = 'feature'
   const minimumText = fontSize * 1.6 * 3
