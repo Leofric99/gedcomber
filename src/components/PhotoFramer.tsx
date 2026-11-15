@@ -97,6 +97,7 @@ export function PhotoFramer({
       ))}
       <div className="person-actions">
         <button
+          type="button"
           className="btn btn-primary"
           disabled={!image}
           onClick={() => {
@@ -107,7 +108,7 @@ export function PhotoFramer({
         >
           Apply framing
         </button>
-        <button className="btn" onClick={onCancel}>
+        <button type="button" className="btn" onClick={onCancel}>
           Cancel
         </button>
       </div>

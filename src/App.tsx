@@ -23,6 +23,7 @@ import {
   X,
 } from 'lucide-react'
 import type { Dataset, Expansion, Project } from './lib/types'
+import type { BookPage } from './lib/book'
 import { newProject } from './lib/types'
 import { exportGedcom, readGedcomFile, updatePerson } from './lib/gedcom'
 import { personName } from './lib/format'
@@ -46,6 +47,7 @@ import { PersonEditor } from './components/PersonEditor'
 import { BookSidebar, BookWorkspace } from './components/BookWorkspace'
 
 export default function App() {
+  const [activeBookPage, setActiveBookPage] = useState<BookPage>()
   const [project, setProject] = useState<Project | null>(null),
     [ready, setReady] = useState(false),
     [saveStatus, setSaveStatus] = useState('Saved on this device'),
@@ -584,6 +586,7 @@ export default function App() {
           {sidebar &&
             (mode === 'book' ? (
               <BookSidebar
+                activePage={activeBookPage}
                 project={project}
                 onChange={setProject}
                 onToggle={toggleBook}
@@ -851,7 +854,13 @@ export default function App() {
                 centerRequest={centerRequest}
               />
             ) : (
-              <BookWorkspace project={project} onTree={() => setMode('tree')} />
+              <BookWorkspace
+                onPageChange={setActiveBookPage}
+                project={project}
+                onChange={setProject}
+                onTree={() => setMode('tree')}
+                onError={(text) => notify(text, true)}
+              />
             )}
           </div>
           {mode === 'tree' && selected && project.dataset.people[selected] && (

@@ -64,6 +64,30 @@ describe('book pagination', () => {
     p.dataset.people['@I1@'].story = 'A brief life.\n\n\n'
     expect(bookPages(p)).toHaveLength(1)
   })
+  it('brings initial facts and story closer to the name while keeping the portrait clear', () => {
+    const p = newProject(demoDataset(), '@I1@')
+    p.book.ids = ['@I1@']
+    const [withoutPhoto] = bookPages(p)
+    p.dataset.people['@I1@'].photo = 'data:image/jpeg;base64,test'
+    p.dataset.people['@I1@'].birthPlace =
+      'A long birthplace that should wrap beside the portrait. '.repeat(3)
+    const [page] = bookPages(p)
+    expect(page.facts[0].y).toBe(withoutPhoto.facts[0].y)
+    expect(page.facts[0].y).toBeLessThan(page.photo!.y + page.photo!.height)
+    for (const fact of page.facts) {
+      for (const [i, line] of fact.lines.entries()) {
+        if (fact.y + i * 19 - 13 < page.photo!.y + page.photo!.height + 12)
+          expect(52 + 120 + line.length * 8).toBeLessThanOrEqual(page.photo!.x - 28)
+      }
+    }
+    expect(page.lines[0].y).toBeGreaterThanOrEqual(page.photo!.y + page.photo!.height + 36)
+    p.dataset.people['@I1@'].birthPlace = 'Bath, Somerset'
+    const [compact] = bookPages(p)
+    expect(compact.storyTop).toBeLessThan(242 + compact.facts.length * 28 + 52)
+    p.book.photoPosition = 'left'
+    const [left] = bookPages(p)
+    expect(left.facts[0].y).toBeGreaterThan(left.photo!.y + left.photo!.height)
+  })
   it('keeps the sample story in a GEDCOM round trip', () => {
     const d = demoDataset()
     expect(parseGedcom(exportGedcom(d)).people['@I1@'].story).toBe(d.people['@I1@'].story)

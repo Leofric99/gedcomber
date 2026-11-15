@@ -1,5 +1,5 @@
 import { get, set } from 'idb-keyval'
-import type { Project } from './types'
+import { bookPhotoArrangements, type Project } from './types'
 const KEY = 'gedcomber-project-v1'
 let pending: Project | undefined
 let flushing: Promise<void> | undefined
@@ -123,6 +123,40 @@ export function validateProject(value: unknown): Project {
     p.book.fontSize > 22
   )
     throw new Error('The backup has invalid display or book settings.')
+  if (
+    (p.book.dividers !== undefined && typeof p.book.dividers !== 'boolean') ||
+    (p.book.sectionSubheadings !== undefined &&
+      (!p.book.sectionSubheadings ||
+        typeof p.book.sectionSubheadings !== 'object' ||
+        Object.values(p.book.sectionSubheadings).some((value) => typeof value !== 'string'))) ||
+    (p.book.pageLayouts !== undefined &&
+      (!p.book.pageLayouts ||
+        typeof p.book.pageLayouts !== 'object' ||
+        Object.values(p.book.pageLayouts).some(
+          (value) =>
+            !value ||
+            !(['text', ...bookPhotoArrangements] as string[]).includes(value.layout) ||
+            (value.captions !== undefined &&
+              (!Array.isArray(value.captions) ||
+                value.captions.length > 2 ||
+                value.captions.some(
+                  (caption) => typeof caption !== 'string' || caption.length > 240,
+                ))) ||
+            (value.imageCount !== undefined && ![1, 2].includes(value.imageCount)) ||
+            (value.ratios !== undefined &&
+              (!Array.isArray(value.ratios) ||
+                value.ratios.length > 2 ||
+                value.ratios.some((ratio) => !Number.isFinite(ratio) || ratio <= 0))) ||
+            !Array.isArray(value.photos) ||
+            value.photos.length > 2 ||
+            value.photos.some(
+              (photo) =>
+                typeof photo !== 'string' ||
+                (photo !== '' && !/^data:image\/(png|jpeg|webp);base64,/.test(photo)),
+            ),
+        )))
+  )
+    throw new Error('The backup contains invalid book layouts or sections.')
   if (new Set(p.book.ids).size !== p.book.ids.length)
     throw new Error('The book contains duplicate selections.')
   if (p.viewport.zoom < 0.01 || p.viewport.zoom > 3)

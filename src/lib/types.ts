@@ -56,7 +56,33 @@ export type Expansion = {
   partners?: boolean
   children?: boolean
 }
+export const bookPhotoArrangements = [
+  'gallery-right',
+  'gallery-left',
+  'feature',
+  'alternating',
+  'right',
+  'banner',
+  'left',
+  'top-left',
+  'top-right',
+  'bottom-left',
+  'bottom-right',
+  'top-pair',
+  'bottom-pair',
+] as const
+export type BookPageLayout = {
+  layout: 'text' | (typeof bookPhotoArrangements)[number]
+  photos: string[]
+  imageCount?: 1 | 2
+  ratios?: number[]
+  captions?: string[]
+}
 export type BookSettings = {
+  dividers?: boolean
+  sectionSubheadings?: Record<string, string>
+  pageLayouts?: Record<string, BookPageLayout>
+
   ids: string[]
   size: 'a4' | 'a5' | 'letter'
   landscape: boolean

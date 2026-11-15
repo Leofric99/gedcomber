@@ -10,18 +10,22 @@ import {
   UserRound,
 } from 'lucide-react'
 import type { Project } from '../lib/types'
-import { bookPages } from '../lib/book'
+import { assembledBookPages as bookPages, type BookPage } from '../lib/book'
 import { projectTheme } from '../lib/themes'
 import { personName } from '../lib/format'
 import { BookArtwork } from './BookArtwork'
+import { BookPageEditor } from './BookPageEditor'
 import { CheckBox, Field, FormatControls, Section, Toggle } from './Controls'
+import { PageLayoutControls } from './PageLayoutControls'
 import { updatePerson } from '../lib/gedcom'
 export function BookSidebar({
+  activePage,
   project,
   onChange,
   onToggle,
   onError,
 }: {
+  activePage?: BookPage
   project: Project
   onChange: (p: Project) => void
   onToggle: (id: string) => void
@@ -88,6 +92,17 @@ export function BookSidebar({
         </button>
       </div>
       <div className="sidebar-scroll">
+        {activePage && !activePage.kind && (
+          <Section title="Photos on this page">
+            <PageLayoutControls
+              key={`${activePage.person.id}:${activePage.continuation}`}
+              page={activePage}
+              project={project}
+              onChange={onChange}
+              onError={onError}
+            />
+          </Section>
+        )}
         {tab === 'people' ? (
           <>
             <Section title="Your chapters">
@@ -188,6 +203,38 @@ export function BookSidebar({
           </>
         ) : (
           <>
+            <Section title="Family sections">
+              <Toggle
+                label="Surname divider pages"
+                checked={!!b.dividers}
+                onChange={(dividers) => set({ dividers })}
+              />
+              <p className="help">
+                Sections follow your chapter order. Place people with the same surname together.
+              </p>
+              {b.dividers &&
+                [
+                  ...new Set(
+                    b.ids.map(
+                      (id) => project.dataset.people[id].surname.trim() || 'Unknown surname',
+                    ),
+                  ),
+                ].map((surname) => (
+                  <Field key={surname} label={`${surname} subheading (optional)`}>
+                    <input
+                      value={b.sectionSubheadings?.[surname] ?? ''}
+                      onChange={(e) =>
+                        set({
+                          sectionSubheadings: {
+                            ...b.sectionSubheadings,
+                            [surname]: e.target.value,
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+                ))}
+            </Section>
             <Section title="Page layout">
               <Field label="Book title">
                 <input value={b.title} onChange={(e) => set({ title: e.target.value })} />
@@ -249,12 +296,24 @@ export function BookSidebar({
       </div>
       <div className="sidebar-foot">
         <UserRound size={13} />
-        Upload life stories here or edit details in Tree view
+        Use the pencils in the book to edit details
       </div>
     </aside>
   )
 }
-export function BookWorkspace({ project, onTree }: { project: Project; onTree: () => void }) {
+export function BookWorkspace({
+  onPageChange,
+  project,
+  onChange,
+  onTree,
+  onError,
+}: {
+  onPageChange: (page: BookPage | undefined) => void
+  project: Project
+  onChange: (project: Project) => void
+  onTree: () => void
+  onError: (message: string) => void
+}) {
   const [page, setPage] = useState(0),
     [fontsReady, setFontsReady] = useState(false)
   useEffect(() => {
@@ -263,6 +322,11 @@ export function BookWorkspace({ project, onTree }: { project: Project; onTree: (
   const pages = useMemo(() => bookPages(project), [project, fontsReady]),
     index = Math.min(page, Math.max(0, pages.length - 1)),
     theme = projectTheme(project)
+  useEffect(() => {
+    onPageChange(pages[index])
+  }, [pages, index, onPageChange])
+  const latest = useRef(project)
+  latest.current = project
   return (
     <main className="book-stage">
       <div className="book-top">
@@ -279,6 +343,29 @@ export function BookWorkspace({ project, onTree }: { project: Project; onTree: (
           <div className="book-paper-wrap">
             <div className={`book-paper ${project.book.landscape ? 'landscape' : ''}`}>
               <BookArtwork page={pages[index]} project={project} theme={theme} index={index} />
+              {!pages[index].kind && (
+                <BookPageEditor
+                  key={`${pages[index].person.id}:${pages[index].continuation}`}
+                  page={pages[index]}
+                  project={project}
+                  onPersonChange={(patch) => {
+                    const current = latest.current,
+                      id = pages[index].person.id
+                    onChange({
+                      ...current,
+                      dataset: updatePerson(current.dataset, {
+                        ...current.dataset.people[id],
+                        ...patch,
+                      }),
+                    })
+                  }}
+                  onTitleChange={(title) => {
+                    const current = latest.current
+                    onChange({ ...current, book: { ...current.book, title } })
+                  }}
+                  onError={onError}
+                />
+              )}
             </div>
           </div>
           <div className="book-pagination">
@@ -303,7 +390,8 @@ export function BookWorkspace({ project, onTree }: { project: Project; onTree: (
             </button>
           </div>
           <p className="book-note">
-            Preview matches the exported PDF. Long stories continue automatically.
+            Use the pencils to edit this page. Editing controls are hidden in the exported PDF. Long
+            stories continue automatically.
           </p>
         </>
       ) : (
